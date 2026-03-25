@@ -134,19 +134,19 @@ impl<T: Clone> Receiver<T> {
         if let Some(v) = Self::get_changed_internal(&mut self.last_observed, &self.shared)? {
             return Ok(v);
         }
-        let lock = self.shared.wait_for_change.lock();
-        // Check if while acquiring the lock something changed.
-        if let Some(v) = Self::get_changed_internal(&mut self.last_observed, &self.shared)? {
-            return Ok(v);
+        let mut lock = self.shared.wait_for_change.lock();
+        loop {
+            // Check if while acquiring the lock something changed.
+            if let Some(v) = Self::get_changed_internal(&mut self.last_observed, &self.shared)? {
+                return Ok(v);
+            }
+            // wait for a notification of a new value
+            lock = self.shared.notify_change.wait(lock);
+            // Recheck if the sender is alive as it might've changed while waiting
+            if !self.shared.sender_alive() {
+                return Err(ChannelClosed(()));
+            }
         }
-        // wait for a notification of a new value
-        let _lock = self.shared.notify_change.wait(lock);
-        // Recheck if the sender is alive as it might've changed while waiting
-        if !self.shared.sender_alive() {
-            return Err(ChannelClosed(()));
-        }
-        self.last_observed = self.shared.id();
-        Ok(self.shared.clone_value())
     }
 }
 
