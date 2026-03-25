@@ -1,0 +1,47 @@
+name: Install protoc
+description: Install protobuf compiler from release assets (no GitHub API; avoids rate limits).
+inputs:
+  version:
+    description: protoc version (e.g. 25.3)
+    required: false
+    default: '25.3'
+runs:
+  using: composite
+  steps:
+    - name: Download and add to PATH
+      shell: bash
+      env:
+        RUNNER_OS: ${{ runner.os }}
+        PROTOC_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        V="${PROTOC_VERSION}"
+        case "${RUNNER_OS}" in
+          Linux)
+            case "$(uname -m)" in
+              aarch64) ZIP="protoc-${V}-linux-aarch_64.zip" ;;
+              *)       ZIP="protoc-${V}-linux-x86_64.zip" ;;
+            esac
+            ;;
+          macOS)
+            case "$(uname -m)" in
+              arm64)  ZIP="protoc-${V}-osx-aarch_64.zip" ;;
+              *)      ZIP="protoc-${V}-osx-x86_64.zip" ;;
+            esac
+            ;;
+          Windows)
+            ZIP="protoc-${V}-win64.zip"
+            ;;
+          *)
+            echo "Unsupported runner OS: ${RUNNER_OS}" >&2
+            exit 1
+            ;;
+        esac
+        URL="https://github.com/protocolbuffers/protobuf/releases/download/v${V}/${ZIP}"
+        echo "Installing protoc ${V} from ${URL}"
+        DEST="${RUNNER_TEMP}/protoc-${V}"
+        rm -rf "${DEST}"
+        mkdir -p "${DEST}"
+        curl -fsSL "${URL}" -o "${RUNNER_TEMP}/protoc.zip"
+        unzip -q "${RUNNER_TEMP}/protoc.zip" -d "${DEST}"
+        echo "${DEST}/bin" >> "${GITHUB_PATH}"
