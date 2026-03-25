@@ -58,6 +58,10 @@ default = ["parking_lot"]
 parking_lot = ["parking", "tokio/parking_lot"]
 bench = []
 no-asm = ["keccak"]
+no-sha3-asm = []
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keccak = "0.1"

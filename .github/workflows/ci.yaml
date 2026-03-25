@@ -159,6 +159,8 @@ jobs:
       - name: Run cargo test no asm
         run: cargo test -p kheavyhash-miner --features=no-asm
 
+      - name: Run cargo test no sha3 asm
+        run: cargo test -p kheavyhash-miner --features=no-sha3-asm
 
       - name: Run cargo test no parking_lot
         run: cargo test -p kheavyhash-miner --no-default-features
@@ -229,6 +231,9 @@ jobs:
 
       - name: Run cargo test release no asm
         run: cargo test --features=no-asm --release -p kheavyhash-miner
+
+      - name: Run cargo test release no sha3 asm
+        run: cargo test --features=no-sha3-asm --release -p kheavyhash-miner
 
       - name: Run cargo test release no parking_lot
         run: cargo test --no-default-features --release -p kheavyhash-miner

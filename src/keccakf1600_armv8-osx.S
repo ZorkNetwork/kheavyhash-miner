@@ -225,3 +225,129 @@ _KeccakF1600:
  ldp x29,x30,[sp],#128
 .inst 0xd50323bf
  ret
+
+/* Keccak-f[1600] ARMv8.2 SHA3 extension path (EOR3/RAX1/BCAX/XAR). From OpenSSL keccak1600-armv8.pl (ios64). */
+.p2align 5
+KeccakF1600_ce:
+ mov x9,#24
+ adrp x10,iotas@PAGE
+ add x10,x10,iotas@PAGEOFF
+ b L$loop_ce
+.p2align 4
+L$loop_ce:
+.inst 0xce0f2a99
+.inst 0xce102eba
+.inst 0xce1132db
+.inst 0xce1236fc
+.inst 0xce133b1d
+.inst 0xce050339
+.inst 0xce06075a
+.inst 0xce070b7b
+.inst 0xce080f9c
+.inst 0xce0913bd
+.inst 0xce7b8f3e
+.inst 0xce7c8f5f
+.inst 0xce7d8f7b
+.inst 0xce798f9c
+.inst 0xce7a8fbd
+.inst 0xce9efc39
+.inst 0xce9e50c1
+.inst 0xce9cb126
+.inst 0xce9f0ec9
+.inst 0xce9c65d6
+.inst 0xce9dba8e
+.inst 0xce9f085a
+.inst 0xce9f5582
+.inst 0xce9b9dac
+.inst 0xce9ce26d
+.inst 0xce9b22f3
+.inst 0xce9d5df7
+.inst 0xce9c948f
+.inst 0xce9ccb1c
+.inst 0xce9efab8
+.inst 0xce9b2508
+.inst 0xce9e4e04
+.inst 0xce9d70b0
+.inst 0xce9b9065
+ eor v0.16b,v0.16b,v29.16b
+.inst 0xce9bae5b
+.inst 0xce9fc623
+.inst 0xce9ed97e
+.inst 0xce9fe8ff
+.inst 0xce9df55d
+.inst 0xce362354
+.inst 0xce375915
+.inst 0xce385ed6
+.inst 0xce3a62f7
+.inst 0xce286b18
+ ld1r {v26.2d},[x10],#8
+.inst 0xce330fd1
+.inst 0xce2f4c72
+.inst 0xce303e73
+.inst 0xce3e41ef
+.inst 0xce237a10
+.inst 0xce2c7f2a
+.inst 0xce2d33eb
+.inst 0xce2e358c
+.inst 0xce3939ad
+.inst 0xce3f65ce
+.inst 0xce2913a7
+.inst 0xce252488
+.inst 0xce261529
+.inst 0xce3d18a5
+.inst 0xce2474c6
+.inst 0xce207363
+.inst 0xce210384
+.inst 0xce220400
+.inst 0xce3b0821
+.inst 0xce3c6c42
+ eor v0.16b,v0.16b,v26.16b
+ subs x9,x9,#1
+ bne L$loop_ce
+ ret
+
+.globl _KeccakF1600_cext
+.p2align 5
+_KeccakF1600_cext:
+.inst 0xd503233f
+ stp x29,x30,[sp,#-80]!
+ add x29,sp,#0
+ stp d8,d9,[sp,#16]
+ stp d10,d11,[sp,#32]
+ stp d12,d13,[sp,#48]
+ stp d14,d15,[sp,#64]
+ ldp d0,d1,[x0,#8*0]
+ ldp d2,d3,[x0,#8*2]
+ ldp d4,d5,[x0,#8*4]
+ ldp d6,d7,[x0,#8*6]
+ ldp d8,d9,[x0,#8*8]
+ ldp d10,d11,[x0,#8*10]
+ ldp d12,d13,[x0,#8*12]
+ ldp d14,d15,[x0,#8*14]
+ ldp d16,d17,[x0,#8*16]
+ ldp d18,d19,[x0,#8*18]
+ ldp d20,d21,[x0,#8*20]
+ ldp d22,d23,[x0,#8*22]
+ ldr d24,[x0,#8*24]
+ bl KeccakF1600_ce
+ ldr x30,[sp,#8]
+ stp d0,d1,[x0,#8*0]
+ stp d2,d3,[x0,#8*2]
+ stp d4,d5,[x0,#8*4]
+ stp d6,d7,[x0,#8*6]
+ stp d8,d9,[x0,#8*8]
+ stp d10,d11,[x0,#8*10]
+ stp d12,d13,[x0,#8*12]
+ stp d14,d15,[x0,#8*14]
+ stp d16,d17,[x0,#8*16]
+ stp d18,d19,[x0,#8*18]
+ stp d20,d21,[x0,#8*20]
+ stp d22,d23,[x0,#8*22]
+ str d24,[x0,#8*24]
+ ldp d8,d9,[sp,#16]
+ ldp d10,d11,[sp,#32]
+ ldp d12,d13,[sp,#48]
+ ldp d14,d15,[sp,#64]
+ ldr x29,[sp],#80
+.inst 0xd50323bf
+ ret

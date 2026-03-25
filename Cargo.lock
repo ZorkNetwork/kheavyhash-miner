@@ -795,6 +795,7 @@ dependencies = [
  "hex",
  "keccak",
  "kernel32-sys",
+ "libc",
  "libloading",
  "log",
  "nix",
