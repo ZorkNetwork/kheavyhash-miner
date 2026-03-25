@@ -126,7 +126,10 @@ impl Client for StratumHandler {
         id = Some(self.last_stratum_id.fetch_add(1, Ordering::SeqCst));
 
         let pay_address = match &self.devfund_address {
-            Some(devfund_address) if self.block_template_ctr.load(Ordering::SeqCst) <= self.devfund_percent => {
+            Some(devfund_address)
+                if self.devfund_percent > 0
+                    && self.block_template_ctr.load(Ordering::SeqCst) <= self.devfund_percent =>
+            {
                 self.mining_dev = Some(true);
                 info!("Mining to devfund");
                 devfund_address.clone()
@@ -153,12 +156,15 @@ impl Client for StratumHandler {
     async fn listen(&mut self, miner: &mut MinerManager) -> Result<(), Error> {
         info!("Waiting for stuff");
         loop {
-            {
-                if (!self.mining_dev.unwrap_or(true)
-                    && self.block_template_ctr.load(Ordering::SeqCst) <= self.devfund_percent)
-                    || (self.mining_dev.unwrap_or(false)
-                        && self.block_template_ctr.load(Ordering::SeqCst) > self.devfund_percent)
-                {
+            if self.devfund_percent > 0 {
+                let current_ctr = self.block_template_ctr.load(Ordering::SeqCst);
+                let should_reconnect = (!self.mining_dev.unwrap_or(true) && current_ctr <= self.devfund_percent)
+                    || (self.mining_dev.unwrap_or(false) && current_ctr > self.devfund_percent);
+                if should_reconnect {
+                    info!(
+                        "Reconnecting for devfund switch (ctr: {}, devfund_percent: {}, mining_dev: {:?})",
+                        current_ctr, self.devfund_percent, self.mining_dev
+                    );
                     return Ok(());
                 }
             }

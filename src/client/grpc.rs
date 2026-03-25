@@ -122,7 +122,10 @@ impl KaspadHandler {
 
     async fn client_get_block_template(&mut self) -> Result<(), SendError<KaspadMessage>> {
         let pay_address = match &self.devfund_address {
-            Some(devfund_address) if self.block_template_ctr.load(Ordering::SeqCst) <= self.devfund_percent => {
+            Some(devfund_address)
+                if self.devfund_percent > 0
+                    && self.block_template_ctr.load(Ordering::SeqCst) <= self.devfund_percent =>
+            {
                 devfund_address.clone()
             }
             _ => self.miner_address.clone(),
