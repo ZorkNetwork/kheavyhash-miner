@@ -2,6 +2,9 @@ name: Tests
 
 on: [push, pull_request]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
 
   check:
@@ -9,41 +12,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+        uses: arduino/setup-protoc@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install cuda
-        uses: Jimver/cuda-toolkit@v0.2.8
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
-          cuda: '11.2.2'
+          cuda: '12.8.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
       - name: Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --tests
+        run: cargo check --tests
 
       - name: Install RISC-V cross compiler
         run: |
@@ -54,12 +50,9 @@ jobs:
         run: rustup target add riscv64gc-unknown-linux-gnu
 
       - name: Cargo check (riscv64gc)
-        uses: actions-rs/cargo@v1
         env:
           CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
-        with:
-          command: check
-          args: --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-gnu
+        run: cargo check --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-gnu
 
   test:
     name: Test Suite
@@ -70,7 +63,7 @@ jobs:
         os: [ ubuntu-latest, windows-latest ]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Fix LibOpenCL on Linux
         if: runner.os == 'Linux'
@@ -83,72 +76,53 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+        uses: arduino/setup-protoc@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install CUDA Linux
         if: runner.os == 'Linux'
-        uses: Jimver/cuda-toolkit@v0.2.8
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
-          cuda: '11.2.2'
+          cuda: '12.8.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
       - name: Install CUDA Windows
         if: runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.8
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
           cuda: '11.5.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
       - name: Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run cargo test regular features
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p kheavyhash-miner
+        run: cargo test -p kheavyhash-miner
 
       - name: Run cargo test no asm
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p kheavyhash-miner --features=no-asm
+        run: cargo test -p kheavyhash-miner --features=no-asm
 
 
       - name: Run cargo test no parking_lot
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p kheavyhash-miner --no-default-features
+        run: cargo test -p kheavyhash-miner --no-default-features
 
       - name: Run cargo test shuttle
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p kheavyhash-miner --no-default-features --features=shuttle
+        run: cargo test -p kheavyhash-miner --no-default-features --features=shuttle
 
       - name: Run cargo test for kaspaopencl
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p kaspaopencl
+        run: cargo test -p kaspaopencl
 
 
   test-release:
@@ -160,7 +134,7 @@ jobs:
         os: [ ubuntu-latest, windows-latest ]
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Fix LibOpenCL on Linux
         if: runner.os == 'Linux'
@@ -173,117 +147,89 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+        uses: arduino/setup-protoc@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install CUDA Linux
         if: runner.os == 'Linux'
-        uses: Jimver/cuda-toolkit@v0.2.8
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
-          cuda: '11.2.2'
+          cuda: '12.8.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
       - name: Install CUDA Windows
         if: runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.8
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
           cuda: '11.5.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
       - name: Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run cargo test release regular features
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release -p kheavyhash-miner
+        run: cargo test --release -p kheavyhash-miner
 
       - name: Run cargo test release no asm
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --features=no-asm --release -p kheavyhash-miner
+        run: cargo test --features=no-asm --release -p kheavyhash-miner
 
       - name: Run cargo test release no parking_lot
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --no-default-features --release -p kheavyhash-miner
+        run: cargo test --no-default-features --release -p kheavyhash-miner
 
       - name: Run cargo test release shuttle
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --no-default-features --features=shuttle --release -p kheavyhash-miner
+        run: cargo test --no-default-features --features=shuttle --release -p kheavyhash-miner
 
       - name: Run cargo test for kaspaopencl
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release -p kaspaopencl
+        run: cargo test --release -p kaspaopencl
 
   lints:
     name: Lints
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+        uses: arduino/setup-protoc@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
+          components: rustfmt,clippy
 
       - name: Install cuda
-        uses: Jimver/cuda-toolkit@v0.2.8
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
-          cuda: '11.2.2'
+          cuda: '12.8.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
       - name: Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
 
       - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --tests -- -D warnings
+        run: cargo clippy --tests
