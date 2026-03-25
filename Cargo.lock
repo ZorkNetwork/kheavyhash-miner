@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "kheavyhash-miner"
-version = "1.0.0-ZN"
+version = "1.0.1-ZN"
 dependencies = [
  "async-trait",
  "blake2b_simd",

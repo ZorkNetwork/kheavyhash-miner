@@ -37,6 +37,8 @@ jobs:
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -115,6 +117,73 @@ jobs:
         with:
           subject-path: "./${{ env.archive }}"
 
+  build-arm64:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            asset_suffix: linux-gnu-arm64
+            archive_ext: tgz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_suffix: osx-arm64
+            archive_ext: tgz
+    name: Building ARM64, ${{ matrix.target }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install AArch64 cross compiler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update
+          sudo apt install -y gcc-aarch64-linux-gnu
+
+      - name: Add rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build ARM64 binary
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --target=${{ matrix.target }} --release -p kheavyhash-miner
+          asset_name="kheavyhash-miner-${{ github.event.release.tag_name }}-cpu-only-${{ matrix.asset_suffix }}"
+          mkdir ${asset_name}
+          mv ./target/${{ matrix.target }}/release/kheavyhash-miner ${asset_name}/${asset_name}
+          if [ -d "./target/${{ matrix.target }}/release" ]; then
+            mv ./target/${{ matrix.target }}/release/libkaspa*.so ${asset_name}/ 2>/dev/null || true
+            mv ./target/${{ matrix.target }}/release/libkaspa*.dylib ${asset_name}/ 2>/dev/null || true
+          fi
+          tar czvf ${asset_name}.tgz ${asset_name}
+          echo "archive=${asset_name}.tgz" >> $GITHUB_ENV
+          echo "asset_name=${asset_name}.tgz" >> $GITHUB_ENV
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: "./${{ env.archive }}"
+          asset_name: "${{ env.asset_name }}"
+          asset_content_type: application/zip
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: "./${{ env.archive }}"
+
   intergrations:
     runs-on: ubuntu-24.04
     strategy:
@@ -134,6 +203,8 @@ jobs:
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

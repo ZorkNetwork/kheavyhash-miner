@@ -45,14 +45,59 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y gcc-riscv64-linux-gnu
+      
+      - name: Install AArch64 cross compiler
+        run: |
+          sudo apt update
+          sudo apt install -y gcc-aarch64-linux-gnu
 
       - name: Add RISC-V rust target
         run: rustup target add riscv64gc-unknown-linux-gnu
+      
+      - name: Add AArch64 rust target
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Add Apple ARM64 rust target (cross-check from Linux)
+        run: rustup target add aarch64-apple-darwin
 
       - name: Cargo check (riscv64gc)
         env:
           CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
         run: cargo check --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-gnu
+
+      - name: Cargo check (aarch64)
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: cargo check --tests -p kheavyhash-miner --target aarch64-unknown-linux-gnu
+
+      # Keccak asm for macOS ARM64: build.rs forces `clang` when HOST is not Darwin so cc-rs uses
+      # `--target=arm64-apple-macosx` instead of `-arch` (GCC). Requires LLVM/Clang on the runner.
+      - name: Install Clang
+        run: |
+          sudo apt update
+          sudo apt install -y clang
+
+      - name: Cargo check (aarch64-apple-darwin, cross from Linux)
+        run: cargo check --tests -p kheavyhash-miner --target aarch64-apple-darwin
+
+  check-apple-arm64:
+    name: Check Apple ARM64
+    runs-on: macos-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Apple ARM64 rust target
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Cargo check (aarch64-apple-darwin)
+        run: cargo check --tests -p kheavyhash-miner --target aarch64-apple-darwin
 
   test:
     name: Test Suite

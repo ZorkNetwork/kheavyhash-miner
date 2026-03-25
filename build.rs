@@ -9,6 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto");
     println!("cargo:rerun-if-changed=src/keccakf1600_x86-64.s");
     println!("cargo:rerun-if-changed=src/keccakf1600_riscv64.S");
+    println!("cargo:rerun-if-changed=src/keccakf1600_armv8.S");
+    println!("cargo:rerun-if-changed=src/keccakf1600_armv8-osx.S");
     tonic_build::configure()
         .build_server(false)
         // .type_attribute(".", "#[derive(Debug)]")
@@ -26,6 +28,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if target_arch == "riscv64" && target_os == "linux" {
         cc::Build::new().flag("-c").file("src/keccakf1600_riscv64.S").compile("libkeccak.a");
+    }
+    if target_arch == "aarch64" && target_os == "linux" {
+        cc::Build::new().flag("-c").file("src/keccakf1600_armv8.S").compile("libkeccak.a");
+    }
+    if target_arch == "aarch64" && target_os == "macos" {
+        // When cross-compiling to macOS from Linux/Windows, the default `cc` is often GCC.
+        // cc-rs then passes `-arch arm64`, which GCC does not understand. Apple/Darwin targets
+        // must use Clang so cc-rs emits `--target=arm64-apple-macosx` instead (see cc-rs
+        // `apple_flags` / Clang `--target` path). Native macOS builds keep the default `cc`
+        // (typically Apple Clang).
+        let host = env::var("HOST").unwrap_or_default();
+        let mut build = cc::Build::new();
+        build.flag("-c").file("src/keccakf1600_armv8-osx.S");
+        if !host.contains("darwin") {
+            build.compiler("clang");
+        }
+        build.compile("libkeccak.a");
     }
     Ok(())
 }
