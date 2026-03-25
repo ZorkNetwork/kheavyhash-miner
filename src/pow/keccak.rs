@@ -74,7 +74,7 @@ pub(super) fn f1600(state: &mut [u64; 25]) {
 
 #[cfg(any(feature = "no-asm", target_os = "windows"))]
 pub(super) fn f1600(state: &mut [u64; 25]) {
-    keccak::f1600(state);
+    keccak::Keccak::new().with_f1600(|perm| perm(state));
 }
 
 #[cfg(all(

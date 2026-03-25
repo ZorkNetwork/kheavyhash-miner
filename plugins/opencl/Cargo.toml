@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 kheavyhash_miner = { path = "../../", package = "kheavyhash-miner" }
-clap = { version = "3.0", features = ["color", "derive"]}
-env_logger = "0.9"
-opencl3 = {version = "0.6", features = ["CL_VERSION_2_1", "CL_VERSION_2_2", "CL_VERSION_3_0"]}
+clap = { version = "4", features = ["color", "derive"]}
+env_logger = "0.11"
+opencl3 = { version = "0.12", features = ["CL_VERSION_2_1", "CL_VERSION_2_2", "CL_VERSION_3_0"] }
 log = "0.4"
-rand = "0.8"
+rand = "0.9"
 include_dir = "0.7"
 
 [lib]

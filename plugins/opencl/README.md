@@ -1,6 +1,6 @@
 # OpenCL support for kHeavyHash-Miner
 
-This is an experimental plugin to support opencl.
+This is an experimental plugin to support OpenCL. It uses [opencl3](https://crates.io/crates/opencl3) (Khronos OpenCL 3 API bindings); queued kernel and buffer operations are wrapped in `unsafe` blocks as required by that crate’s API.
 
 # Compiling to AMD
 Download and install Radeon GPU Analyzer, which allows you to compile OpenCL for AMD

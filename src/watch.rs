@@ -178,13 +178,13 @@ mod sync {
     #[cfg(all(feature = "parking_lot", feature = "shuttle"))]
     compile_error!("Can't use sync primitives both from parking_lot and from shuttle");
 
-    #[cfg(feature = "parking_lot")]
+    #[cfg(all(feature = "parking_lot", not(feature = "shuttle")))]
     use parking::{
         Condvar as CondvarInternal, Mutex as MutexInternal, MutexGuard, RwLock as RwLockInternal, RwLockReadGuard,
         RwLockWriteGuard,
     };
 
-    #[cfg(feature = "shuttle")]
+    #[cfg(all(feature = "shuttle", not(feature = "parking_lot")))]
     use shuttle::sync::{
         Condvar as CondvarInternal, Mutex as MutexInternal, MutexGuard, RwLock as RwLockInternal, RwLockReadGuard,
         RwLockWriteGuard,
@@ -195,7 +195,7 @@ mod sync {
         RwLockWriteGuard,
     };
 
-    #[cfg(feature = "shuttle")]
+    #[cfg(all(feature = "shuttle", not(feature = "parking_lot")))]
     pub use shuttle::{
         sync::{
             atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -203,7 +203,7 @@ mod sync {
         },
         thread,
     };
-    #[cfg(not(feature = "shuttle"))]
+    #[cfg(not(all(feature = "shuttle", not(feature = "parking_lot"))))]
     pub use std::{
         sync::{
             atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -379,9 +379,9 @@ mod tests {
         if cfg!(feature = "parking_lot") || cfg!(feature = "shuttle") {
             iters *= 10;
         }
-        #[cfg(feature = "shuttle")]
+        #[cfg(all(feature = "shuttle", not(feature = "parking_lot")))]
         shuttle::check_random(f, iters);
-        #[cfg(not(feature = "shuttle"))]
+        #[cfg(not(all(feature = "shuttle", not(feature = "parking_lot"))))]
         for _ in 0..iters {
             f();
         }

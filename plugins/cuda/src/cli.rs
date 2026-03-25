@@ -22,17 +22,21 @@ impl FromStr for NonceGenEnum {
 #[cfg(feature = "overclock")]
 #[derive(clap::Args, Debug, Default)]
 pub struct OverClock {
-    #[clap(long = "cuda-lock-mem-clocks", use_delimiter = true, help = "Lock mem clocks eg: ,810, [default: 0]")]
+    #[clap(long = "cuda-lock-mem-clocks", use_value_delimiter = true, help = "Lock mem clocks eg: ,810, [default: 0]")]
     pub cuda_lock_mem_clocks: Option<Vec<u32>>,
-    #[clap(long = "cuda-lock-core-clocks", use_delimiter = true, help = "Lock core clocks eg: ,1200, [default: 0]")]
+    #[clap(
+        long = "cuda-lock-core-clocks",
+        use_value_delimiter = true,
+        help = "Lock core clocks eg: ,1200, [default: 0]"
+    )]
     pub cuda_lock_core_clocks: Option<Vec<u32>>,
-    #[clap(long = "cuda-power-limits", use_delimiter = true, help = "Lock power limits eg: ,150, [default: 0]")]
+    #[clap(long = "cuda-power-limits", use_value_delimiter = true, help = "Lock power limits eg: ,150, [default: 0]")]
     pub cuda_power_limits: Option<Vec<u32>>,
 }
 
 #[derive(clap::Args, Debug)]
 pub struct CudaOpt {
-    #[clap(long = "cuda-device", use_delimiter = true, help = "Which CUDA GPUs to use [default: all]")]
+    #[clap(long = "cuda-device", use_value_delimiter = true, help = "Which CUDA GPUs to use [default: all]")]
     pub cuda_device: Option<Vec<u16>>,
     #[clap(long = "cuda-workload", help = "Ratio of nonces to GPU possible parrallel run [default: 64]")]
     pub cuda_workload: Option<Vec<f32>>,

@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 kheavyhash-miner = { path = "../../" }
-cust ="0.3"
+cust = "0.3"
 log = "0.4"
-rand = "0.8"
-clap = { version = "3.0", features = ["color", "derive"]}
-env_logger = "0.9"
+rand = "0.9"
+clap = { version = "4", features = ["color", "derive"]}
+env_logger = "0.11"
 nvml-wrapper = { git = "https://github.com/benrod3k/nvml-wrapper", branch = "495.29.05", optional = true }
 
 [lib]

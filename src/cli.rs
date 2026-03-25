@@ -4,55 +4,60 @@ use log::LevelFilter;
 use crate::Error;
 
 #[derive(Parser, Debug)]
-#[clap(name = "kheavyhash-miner", version, about = "A CPU/GPU kHeavyHash algorithm miner", term_width = 0)]
+#[command(name = "kheavyhash-miner", version, about = "A CPU/GPU kHeavyHash algorithm miner", max_term_width = 0)]
 pub struct Opt {
-    #[clap(short, long, help = "Enable debug logging level")]
+    #[arg(short, long, help = "Enable debug logging level")]
     pub debug: bool,
-    #[clap(short = 'a', long = "mining-address", help = "The Kaspa address for the miner reward")]
+    #[arg(short = 'a', long = "mining-address", help = "The Kaspa address for the miner reward")]
     pub mining_address: String,
-    #[clap(short = 's', long = "kaspad-address", default_value = "127.0.0.1", help = "The IP of the kaspad instance")]
+    #[arg(short = 's', long = "kaspad-address", default_value = "127.0.0.1", help = "The IP of the kaspad instance")]
     pub kaspad_address: String,
 
-    #[clap(long = "devfund-percent", help = "The percentage of blocks to send to the devfund (minimum 2%)", default_value = "2", parse(try_from_str = parse_devfund_percent))]
+    #[arg(
+        long = "devfund-percent",
+        help = "The percentage of blocks to send to the devfund (minimum 2%)",
+        default_value = "2",
+        value_parser = parse_devfund_percent
+    )]
     pub devfund_percent: u16,
 
-    #[clap(short, long, help = "Kaspad port [default: Mainnet = 16110, Testnet = 16211]")]
+    #[arg(short, long, help = "Kaspad port [default: Mainnet = 16110, Testnet = 16211]")]
     port: Option<u16>,
 
-    #[clap(long, help = "Use testnet instead of mainnet [default: false]")]
+    #[arg(long, help = "Use testnet instead of mainnet [default: false]")]
     testnet: bool,
-    #[clap(short = 't', long = "threads", help = "Amount of CPU miner threads to launch [default: 0]")]
+    #[arg(short = 't', long = "threads", help = "Amount of CPU miner threads to launch [default: 0]")]
     pub num_threads: Option<u16>,
-    #[clap(
+    #[arg(
         long = "mine-when-not-synced",
         help = "Mine even when kaspad says it is not synced",
         long_help = "Mine even when kaspad says it is not synced, only useful when passing `--allow-submit-block-when-not-synced` to kaspad  [default: false]"
     )]
     pub mine_when_not_synced: bool,
 
-    #[clap(skip)]
+    #[arg(skip)]
     pub devfund_address: String,
 }
 
-fn parse_devfund_percent(s: &str) -> Result<u16, &'static str> {
+fn parse_devfund_percent(s: &str) -> Result<u16, String> {
     let err = "devfund-percent should be --devfund-percent=XX.YY up to 2 numbers after the dot";
     let mut splited = s.split('.');
-    let prefix = splited.next().ok_or(err)?;
+    let prefix = splited.next().ok_or_else(|| err.to_string())?;
     // if there's no postfix then it's 0.
-    let postfix = splited.next().ok_or(err).unwrap_or("0");
+    let postfix = splited.next().unwrap_or("0");
     // error if there's more than a single dot
     if splited.next().is_some() {
-        return Err(err);
+        return Err(err.to_string());
     };
     // error if there are more than 2 numbers before or after the dot
     if prefix.len() > 2 || postfix.len() > 2 {
-        return Err(err);
+        return Err(err.to_string());
     }
-    let postfix: u16 = postfix.parse().map_err(|_| err)?;
-    let prefix: u16 = prefix.parse().map_err(|_| err)?;
+    let postfix: u16 = postfix.parse().map_err(|_| err.to_string())?;
+    let prefix: u16 = prefix.parse().map_err(|_| err.to_string())?;
     // can't be more than 99.99%,
     if prefix >= 100 || postfix >= 100 {
-        return Err(err);
+        return Err(err.to_string());
     }
     if prefix < 2 {
         // Force at least 2 percent

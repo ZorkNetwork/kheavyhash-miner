@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap::{ArgMatches, Command};
 use std::any::Any;
 use std::error::Error as StdError;
 
@@ -23,13 +23,8 @@ impl PluginManager {
     }
 
     #[allow(clippy::result_large_err)]
-    pub(crate) unsafe fn load_single_plugin<'help>(
-        &mut self,
-        app: clap::App<'help>,
-        path: &str,
-    ) -> Result<clap::App<'help>, (clap::App<'help>, Error)> {
-        type PluginCreate<'help> =
-            unsafe fn(*const clap::App<'help>) -> (*mut clap::App<'help>, *mut dyn Plugin, *mut Error);
+    pub(crate) unsafe fn load_single_plugin(&mut self, app: Command, path: &str) -> Result<Command, (Command, Error)> {
+        type PluginCreate = unsafe fn(*const Command) -> (*mut Command, *mut dyn Plugin, *mut Error);
 
         let lib = match Library::new(path) {
             Ok(l) => l,
@@ -121,10 +116,7 @@ pub trait Worker {
     fn copy_output_to(&mut self, nonces: &mut Vec<u64>) -> Result<(), Error>;
 }
 
-pub fn load_plugins<'help>(
-    app: clap::App<'help>,
-    paths: &[String],
-) -> Result<(clap::App<'help>, PluginManager), Error> {
+pub fn load_plugins(app: Command, paths: &[String]) -> Result<(Command, PluginManager), Error> {
     let mut factory = PluginManager::new();
     let mut app = app;
     for path in paths {
@@ -144,8 +136,8 @@ macro_rules! declare_plugin {
         use clap::Args;
         #[no_mangle]
         pub unsafe extern "C" fn _plugin_create(
-            app: *mut clap::App,
-        ) -> (*mut clap::App, *mut dyn $crate::Plugin, *const $crate::Error) {
+            app: *mut clap::Command,
+        ) -> (*mut clap::Command, *mut dyn $crate::Plugin, *const $crate::Error) {
             // make sure the constructor is the correct type.
             let constructor: fn() -> Result<$plugin_type, $crate::Error> = $constructor;
 

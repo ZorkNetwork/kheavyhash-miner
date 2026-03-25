@@ -7,7 +7,8 @@
 **CAUTION! Plugins can run arbitrary code: if you use precompiled, make sure they come from 
 reputable source**
 
-The plugin system relies on three interfaces defined in `lib.rs` on `kheavyhash-miner`. 
+The plugin system relies on three interfaces defined in `lib.rs` on `kheavyhash-miner`. Plugins link against the same **clap** major version as the main crate (currently **clap 4**); the dynamic entry point `_plugin_create` receives a `clap::Command`, not `clap::App`.
+
 Each interface refers to an object which has a different job:
   * **Plugin** - the environment and configuration of a type of workers.
   * **WorkerSpec** - Light weight struct containing the initialization arguments for a worker.

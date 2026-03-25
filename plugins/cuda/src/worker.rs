@@ -7,7 +7,7 @@ use cust::prelude::*;
 use kheavyhash_miner::xoshiro256starstar::Xoshiro256StarStar;
 use kheavyhash_miner::Worker;
 use log::{error, info};
-use rand::{Fill, RngCore};
+use rand::{Rng, RngCore};
 use std::ffi::CString;
 use std::sync::{Arc, Weak};
 
@@ -93,7 +93,7 @@ impl<'gpu> Worker for CudaGPUWorker<'gpu> {
         let stream = &self.stream;
         let random: u8 = match self.random {
             NonceGenEnum::Lean => {
-                self.rand_state.copy_from(&[rand::thread_rng().next_u64()]).unwrap();
+                self.rand_state.copy_from(&[rand::rng().next_u64()]).unwrap();
                 0
             }
             NonceGenEnum::Xoshiro => 1,
@@ -214,7 +214,7 @@ impl<'gpu> CudaGPUWorker<'gpu> {
                 let mut buffer = DeviceBuffer::<u64>::zeroed(4 * (chosen_workload as usize)).unwrap();
                 info!("GPU #{} is generating initial seed. This may take some time.", device_id);
                 let mut seed = [1u64; 4];
-                seed.try_fill(&mut rand::thread_rng())?;
+                rand::rng().fill(&mut seed);
                 buffer.copy_from(
                     Xoshiro256StarStar::new(&seed)
                         .iter_jump_state()
@@ -229,7 +229,7 @@ impl<'gpu> CudaGPUWorker<'gpu> {
             NonceGenEnum::Lean => {
                 info!("Using lean nonce-generation");
                 let mut buffer = DeviceBuffer::<u64>::zeroed(1).unwrap();
-                let seed = rand::thread_rng().next_u64();
+                let seed = rand::rng().next_u64();
                 buffer.copy_from(&[seed])?;
                 buffer
             }

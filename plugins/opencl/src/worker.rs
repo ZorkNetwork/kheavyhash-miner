@@ -13,7 +13,7 @@ use opencl3::memory::{Buffer, ClMem, CL_MAP_WRITE, CL_MEM_READ_ONLY, CL_MEM_READ
 use opencl3::platform::Platform;
 use opencl3::program::{Program, CL_FINITE_MATH_ONLY, CL_MAD_ENABLE, CL_STD_2_0};
 use opencl3::types::{cl_event, cl_uchar, cl_ulong, CL_BLOCKING};
-use rand::{thread_rng, Fill, RngCore};
+use rand::{Rng, RngCore};
 use std::borrow::Borrow;
 use std::ffi::c_void;
 use std::ptr;
@@ -58,67 +58,73 @@ impl Worker for OpenCLGPUWorker {
                 .collect::<Vec<cl_uchar>>(),
             false => matrix.iter().flat_map(|row| row.map(|v| v as cl_uchar)).collect::<Vec<cl_uchar>>(),
         };
-        self.queue
-            .enqueue_write_buffer(&mut self.final_nonce, CL_BLOCKING, 0, &[0], &[])
-            .map_err(|e| e.to_string())
-            .unwrap()
-            .wait()
-            .unwrap();
-        self.queue
-            .enqueue_write_buffer(&mut self.hash_header, CL_BLOCKING, 0, hash_header, &[])
-            .map_err(|e| e.to_string())
-            .unwrap()
-            .wait()
-            .unwrap();
-        self.queue
-            .enqueue_write_buffer(&mut self.matrix, CL_BLOCKING, 0, cl_uchar_matrix.as_slice(), &[])
-            .map_err(|e| e.to_string())
-            .unwrap()
-            .wait()
-            .unwrap();
-        let copy_target = self
-            .queue
-            .enqueue_write_buffer(&mut self.target, CL_BLOCKING, 0, target, &[])
-            .map_err(|e| e.to_string())
-            .unwrap();
+        unsafe {
+            self.queue
+                .enqueue_write_buffer(&mut self.final_nonce, CL_BLOCKING, 0, &[0], &[])
+                .map_err(|e| e.to_string())
+                .unwrap()
+                .wait()
+                .unwrap();
+            self.queue
+                .enqueue_write_buffer(&mut self.hash_header, CL_BLOCKING, 0, hash_header, &[])
+                .map_err(|e| e.to_string())
+                .unwrap()
+                .wait()
+                .unwrap();
+            self.queue
+                .enqueue_write_buffer(&mut self.matrix, CL_BLOCKING, 0, cl_uchar_matrix.as_slice(), &[])
+                .map_err(|e| e.to_string())
+                .unwrap()
+                .wait()
+                .unwrap();
+            let copy_target = self
+                .queue
+                .enqueue_write_buffer(&mut self.target, CL_BLOCKING, 0, target, &[])
+                .map_err(|e| e.to_string())
+                .unwrap();
 
-        self.events = vec![copy_target.get()];
-        for event in &self.events {
-            retain_event(*event).unwrap();
+            self.events = vec![copy_target.get()];
+            for event in &self.events {
+                retain_event(*event).unwrap();
+            }
         }
     }
 
     fn calculate_hash(&mut self, _nonces: Option<&Vec<u64>>, nonce_mask: u64, nonce_fixed: u64) {
         if self.random == NonceGenEnum::Lean {
-            self.queue
-                .enqueue_write_buffer(&mut self.random_state, CL_BLOCKING, 0, &[thread_rng().next_u64()], &[])
-                .map_err(|e| e.to_string())
-                .unwrap()
-                .wait()
-                .unwrap();
+            unsafe {
+                self.queue
+                    .enqueue_write_buffer(&mut self.random_state, CL_BLOCKING, 0, &[rand::rng().next_u64()], &[])
+                    .map_err(|e| e.to_string())
+                    .unwrap()
+                    .wait()
+                    .unwrap();
+            }
         }
         let random_type: cl_uchar = match self.random {
             NonceGenEnum::Lean => 0,
             NonceGenEnum::Xoshiro => 1,
         };
-        let kernel_event = ExecuteKernel::new(&self.heavy_hash)
-            .set_arg(&(self.local_size as u64))
-            .set_arg(&nonce_mask)
-            .set_arg(&nonce_fixed)
-            .set_arg(&self.hash_header)
-            .set_arg(&self.matrix)
-            .set_arg(&self.target)
-            .set_arg(&random_type)
-            .set_arg(&self.random_state)
-            .set_arg(&self.final_nonce)
-            .set_arg(&self.final_hash)
-            .set_global_work_size(self.workload)
-            .set_event_wait_list(self.events.borrow())
-            .enqueue_nd_range(&self.queue)
-            .map_err(|e| e.to_string())
-            .unwrap();
+        unsafe {
+            let kernel_event = ExecuteKernel::new(&self.heavy_hash)
+                .set_arg(&(self.local_size as u64))
+                .set_arg(&nonce_mask)
+                .set_arg(&nonce_fixed)
+                .set_arg(&self.hash_header)
+                .set_arg(&self.matrix)
+                .set_arg(&self.target)
+                .set_arg(&random_type)
+                .set_arg(&self.random_state)
+                .set_arg(&self.final_nonce)
+                .set_arg(&self.final_hash)
+                .set_global_work_size(self.workload)
+                .set_event_wait_list(self.events.borrow())
+                .enqueue_nd_range(&self.queue)
+                .map_err(|e| e.to_string())
+                .unwrap();
 
-        kernel_event.wait().unwrap();
+            kernel_event.wait().unwrap();
+        }
 
         /*let mut nonces = [0u64; 1];
         let mut hash = [[0u64; 4]];
@@ -134,9 +140,11 @@ impl Worker for OpenCLGPUWorker {
     }
 
     fn sync(&self) -> Result<(), Error> {
-        wait_for_events(&self.events).map_err(|e| format!("waiting error code {}", e))?;
-        for event in &self.events {
-            release_event(*event).unwrap();
+        unsafe {
+            wait_for_events(&self.events).map_err(|e| format!("waiting error code {}", e))?;
+            for event in &self.events {
+                release_event(*event).unwrap();
+            }
         }
         Ok(())
     }
@@ -146,10 +154,12 @@ impl Worker for OpenCLGPUWorker {
     }
 
     fn copy_output_to(&mut self, nonces: &mut Vec<u64>) -> Result<(), Error> {
-        self.queue
-            .enqueue_read_buffer(&self.final_nonce, CL_BLOCKING, 0, nonces, &[])
-            .map_err(|e| e.to_string())
-            .unwrap();
+        unsafe {
+            self.queue
+                .enqueue_read_buffer(&self.final_nonce, CL_BLOCKING, 0, nonces, &[])
+                .map_err(|e| e.to_string())
+                .unwrap();
+        }
         Ok(())
     }
 }
@@ -230,77 +240,88 @@ impl OpenCLGPUWorker {
         let heavy_hash =
             Kernel::create(&program, "heavy_hash").unwrap_or_else(|_| panic!("{}::Kernel::create failed", name));
 
-        let queue =
-            CommandQueue::create_with_properties(&context, device.id(), CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0)
-                .unwrap_or_else(|_| panic!("{}::CommandQueue::create_with_properties failed", name));
+        let (queue, final_nonce, final_hash, hash_header, matrix, target, random_state) = unsafe {
+            let queue =
+                CommandQueue::create_with_properties(&context, device.id(), CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0)
+                    .unwrap_or_else(|_| panic!("{}::CommandQueue::create_with_properties failed", name));
 
-        let final_nonce = Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_WRITE, 1, ptr::null_mut())
-            .expect("Buffer allocation failed");
-        let final_hash = Buffer::<[cl_ulong; 4]>::create(context_ref, CL_MEM_WRITE_ONLY, 1, ptr::null_mut())
-            .expect("Buffer allocation failed");
+            let final_nonce = Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_WRITE, 1, ptr::null_mut())
+                .expect("Buffer allocation failed");
+            let final_hash = Buffer::<[cl_ulong; 4]>::create(context_ref, CL_MEM_WRITE_ONLY, 1, ptr::null_mut())
+                .expect("Buffer allocation failed");
 
-        let hash_header = Buffer::<cl_uchar>::create(context_ref, CL_MEM_READ_ONLY, 72, ptr::null_mut())
-            .expect("Buffer allocation failed");
-        let matrix = Buffer::<cl_uchar>::create(context_ref, CL_MEM_READ_ONLY, 64 * 64, ptr::null_mut())
-            .expect("Buffer allocation failed");
-        let target = Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_ONLY, 4, ptr::null_mut())
-            .expect("Buffer allocation failed");
+            let hash_header = Buffer::<cl_uchar>::create(context_ref, CL_MEM_READ_ONLY, 72, ptr::null_mut())
+                .expect("Buffer allocation failed");
+            let matrix = Buffer::<cl_uchar>::create(context_ref, CL_MEM_READ_ONLY, 64 * 64, ptr::null_mut())
+                .expect("Buffer allocation failed");
+            let target = Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_ONLY, 4, ptr::null_mut())
+                .expect("Buffer allocation failed");
 
-        let mut seed = [1u64; 4];
-        seed.try_fill(&mut rand::thread_rng())?;
+            let mut seed = [1u64; 4];
+            rand::rng().fill(&mut seed);
 
-        let random_state = match random {
-            NonceGenEnum::Xoshiro => {
-                info!("Using xoshiro for nonce-generation");
-                let random_state =
-                    Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_WRITE, 4 * chosen_workload, ptr::null_mut())
-                        .expect("Buffer allocation failed");
-                let rand_state =
-                    Xoshiro256StarStar::new(&seed).iter_jump_state().take(chosen_workload).collect::<Vec<[u64; 4]>>();
-                let mut random_state_local: *mut c_void = std::ptr::null_mut::<c_void>();
-                info!("{}: Generating initial seed. This may take some time.", name);
-
-                queue
-                    .enqueue_map_buffer(
-                        &random_state,
-                        CL_BLOCKING,
-                        CL_MAP_WRITE,
-                        0,
-                        32 * chosen_workload,
-                        &mut random_state_local,
-                        &[],
+            let random_state = match random {
+                NonceGenEnum::Xoshiro => {
+                    info!("Using xoshiro for nonce-generation");
+                    let random_state = Buffer::<cl_ulong>::create(
+                        context_ref,
+                        CL_MEM_READ_WRITE,
+                        4 * chosen_workload,
+                        ptr::null_mut(),
                     )
-                    .map_err(|e| e.to_string())?
-                    .wait()
-                    .unwrap();
-                if random_state_local.is_null() {
-                    return Err(format!("{}::could not load random state vector to memory. Consider changing random or lowering workload", name).into());
-                }
-                unsafe {
-                    random_state_local.copy_from(rand_state.as_ptr() as *mut c_void, 32 * chosen_workload);
-                }
-                // queue.enqueue_svm_unmap(&random_state,&[]).map_err(|e| e.to_string())?;
-                queue
-                    .enqueue_unmap_mem_object(random_state.get(), random_state_local, &[])
-                    .map_err(|e| e.to_string())
-                    .unwrap()
-                    .wait()
-                    .unwrap();
-                info!("{}: Done generating initial seed", name);
-                random_state
-            }
-            NonceGenEnum::Lean => {
-                info!("Using lean nonce-generation");
-                let mut random_state = Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_WRITE, 1, ptr::null_mut())
                     .expect("Buffer allocation failed");
-                queue
-                    .enqueue_write_buffer(&mut random_state, CL_BLOCKING, 0, &[thread_rng().next_u64()], &[])
-                    .map_err(|e| e.to_string())
-                    .unwrap()
-                    .wait()
-                    .unwrap();
-                random_state
-            }
+                    let rand_state = Xoshiro256StarStar::new(&seed)
+                        .iter_jump_state()
+                        .take(chosen_workload)
+                        .collect::<Vec<[u64; 4]>>();
+                    let mut random_state_local: *mut c_void = std::ptr::null_mut::<c_void>();
+                    info!("{}: Generating initial seed. This may take some time.", name);
+
+                    queue
+                        .enqueue_map_buffer(
+                            &random_state,
+                            CL_BLOCKING,
+                            CL_MAP_WRITE,
+                            0,
+                            32 * chosen_workload,
+                            &mut random_state_local,
+                            &[],
+                        )
+                        .map_err(|e| e.to_string())?
+                        .wait()
+                        .unwrap();
+                    if random_state_local.is_null() {
+                        return Err(format!(
+                            "{}::could not load random state vector to memory. Consider changing random or lowering workload",
+                            name
+                        )
+                        .into());
+                    }
+                    random_state_local.copy_from(rand_state.as_ptr() as *mut c_void, 32 * chosen_workload);
+                    queue
+                        .enqueue_unmap_mem_object(random_state.get(), random_state_local, &[])
+                        .map_err(|e| e.to_string())
+                        .unwrap()
+                        .wait()
+                        .unwrap();
+                    info!("{}: Done generating initial seed", name);
+                    random_state
+                }
+                NonceGenEnum::Lean => {
+                    info!("Using lean nonce-generation");
+                    let mut random_state =
+                        Buffer::<cl_ulong>::create(context_ref, CL_MEM_READ_WRITE, 1, ptr::null_mut())
+                            .expect("Buffer allocation failed");
+                    queue
+                        .enqueue_write_buffer(&mut random_state, CL_BLOCKING, 0, &[rand::rng().next_u64()], &[])
+                        .map_err(|e| e.to_string())
+                        .unwrap()
+                        .wait()
+                        .unwrap();
+                    random_state
+                }
+            };
+            (queue, final_nonce, final_hash, hash_header, matrix, target, random_state)
         };
         Ok(Self {
             context,

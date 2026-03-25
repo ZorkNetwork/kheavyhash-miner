@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::{pow, watch, Error};
 use log::{error, info, warn};
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 use tokio::sync::mpsc::Sender;
 use tokio::task::{self, JoinHandle};
 use tokio::time::MissedTickBehavior;
@@ -17,12 +17,12 @@ use kheavyhash_miner::{PluginManager, WorkerSpec};
 
 type MinerHandler = std::thread::JoinHandle<Result<(), Error>>;
 
-#[cfg(any(target_os = "linux", target_os = "mac_os"))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 extern "C" fn signal_panic(_signal: nix::libc::c_int) {
     panic!("Forced shutdown");
 }
 
-#[cfg(any(target_os = "linux", target_os = "mac_os"))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn register_freeze_handler() {
     let handler = nix::sys::signal::SigHandler::Handler(signal_panic);
     unsafe {
@@ -30,7 +30,7 @@ fn register_freeze_handler() {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "mac_os"))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn trigger_freeze_handler(kill_switch: Arc<AtomicBool>, handle: &MinerHandler) -> std::thread::JoinHandle<()> {
     use std::os::unix::thread::JoinHandleExt;
     let pthread_handle = handle.as_pthread_t();
@@ -72,12 +72,12 @@ fn trigger_freeze_handler(kill_switch: Arc<AtomicBool>, handle: &MinerHandler) -
     })
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "mac_os", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn trigger_freeze_handler(kill_switch: Arc<AtomicBool>, handle: &MinerHandler) {
     warn!("Freeze handler is not implemented. Frozen threads are ignored");
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "mac_os", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn register_freeze_handler() {
     warn!("Freeze handler is not implemented. Frozen threads are ignored");
 }
@@ -342,7 +342,7 @@ impl MinerManager {
         mut block_channel: watch::Receiver<Option<WorkerCommand>>,
         hashes_tried: Arc<AtomicU64>,
     ) -> MinerHandler {
-        let mut nonce = Wrapping(thread_rng().next_u64());
+        let mut nonce = Wrapping(rand::rng().next_u64());
         let mut mask = Wrapping(0);
         let mut fixed = Wrapping(0);
         std::thread::spawn(move || {
@@ -470,7 +470,7 @@ mod benches {
     use self::test::{black_box, Bencher};
     use crate::pow::State;
     use crate::proto::{RpcBlock, RpcBlockHeader};
-    use rand::{thread_rng, RngCore};
+    use rand::RngCore;
 
     #[bench]
     pub fn bench_mining(bh: &mut Bencher) {
@@ -497,7 +497,7 @@ mod benches {
             },
         )
         .unwrap();
-        nonce = thread_rng().next_u64();
+        let mut nonce = rand::rng().next_u64();
         bh.iter(|| {
             for _ in 0..100 {
                 black_box(state.check_pow(nonce));

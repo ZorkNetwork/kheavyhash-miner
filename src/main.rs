@@ -5,10 +5,10 @@ use std::env::current_exe;
 use std::error::Error as StdError;
 use std::ffi::OsStr;
 
-use clap::{App, FromArgMatches, IntoApp};
+use clap::{Command, CommandFactory, FromArgMatches};
 use kheavyhash_miner::PluginManager;
 use log::{error, info};
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 use std::fs;
 use std::sync::atomic::AtomicU16;
 use std::sync::Arc;
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Error> {
     let mut path = current_exe().unwrap_or_default();
     path.pop(); // Getting the parent directory
     let plugins = filter_plugins(path.to_str().unwrap_or("."));
-    let (app, mut plugin_manager): (App, PluginManager) = kheavyhash_miner::load_plugins(Opt::into_app(), &plugins)?;
+    let (app, mut plugin_manager): (Command, PluginManager) = kheavyhash_miner::load_plugins(Opt::command(), &plugins)?;
 
     let matches = app.get_matches();
 
@@ -147,7 +147,7 @@ async fn main() -> Result<(), Error> {
         return Err("No workers specified".into());
     }
 
-    let block_template_ctr = Arc::new(AtomicU16::new((thread_rng().next_u64() % 10_000u64) as u16));
+    let block_template_ctr = Arc::new(AtomicU16::new((rand::rng().next_u64() % 10_000u64) as u16));
     if opt.devfund_percent > 0 {
         info!(
             "devfund enabled, mining {}.{}% of the time to devfund address: {} ",

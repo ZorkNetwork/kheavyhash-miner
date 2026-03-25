@@ -11,10 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=src/keccakf1600_riscv64.S");
     println!("cargo:rerun-if-changed=src/keccakf1600_armv8.S");
     println!("cargo:rerun-if-changed=src/keccakf1600_armv8-osx.S");
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(false)
         // .type_attribute(".", "#[derive(Debug)]")
-        .compile(
+        .compile_protos(
             &["proto/rpc.proto", "proto/p2p.proto", "proto/messages.proto"],
             &["proto"],
         )?;

@@ -11,7 +11,7 @@ use crate::{miner::MinerManager, Error};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use log::{error, info, warn};
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 use semver::Version;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
@@ -92,7 +92,7 @@ impl KaspadHandler {
             devfund_address: None,
             devfund_percent: 0,
             block_template_ctr: block_template_ctr
-                .unwrap_or_else(|| Arc::new(AtomicU16::new((thread_rng().next_u64() % 10_000u64) as u16))),
+                .unwrap_or_else(|| Arc::new(AtomicU16::new((rand::rng().next_u64() % 10_000u64) as u16))),
             block_channel,
             block_handle,
         }))
