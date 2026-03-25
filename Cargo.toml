@@ -45,14 +45,14 @@ tokio-util = {version = "0.7.0", features = ["codec"]}
 serde_json = "1.0"
 serde_repr = "0.1"
 serde =  {version="1.0", features=["derive"]}
-futures = "0.3.21"
+futures = "0.3"
 bytes = "1.11.1"
 async-trait = "0.1"
 num = "0.4"
 nix = { version = "0.31", features = ["signal", "pthread"] }
 hex = "0.4"
 semver = "1.0"
-time = { version = "0.3", features = ["formatting", "macros"] }
+time = { version = "0.3.47", features = ["formatting", "macros"] }
 
 [features]
 default = ["parking_lot"]
@@ -76,7 +76,7 @@ codegen-units = 1
 [build-dependencies]
 tonic-prost-build = "0.14"
 cc = "1"
-time = { version = "0.3", features = ["formatting"] }
+time = { version = "0.3.47", features = ["formatting"] }
 
 [dev-dependencies]
 sha3 = { git = "https://github.com/elichai/hashes", branch = "cSHAKE" }
