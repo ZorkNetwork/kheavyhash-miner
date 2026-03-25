@@ -1,4 +1,4 @@
-# OpenCL support for Kaspa-Miner
+# OpenCL support for kHeavyHash-Miner
 
 This is an experimental plugin to support opencl.
 

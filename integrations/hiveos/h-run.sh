@@ -1,7 +1,7 @@
 ####################################################################################
 ###
-### kaspa-miner
-### https://github.com/tmrlvi/kaspa-miner/releases
+### kheavyhash-miner
+### https://github.com/ZorkNetwork/kheavyhash-miner/releases
 ###
 ### Hive integration: Merlin
 ###

@@ -1,57 +1,54 @@
-# Kaspa-miner
-[![Build status](https://github.com/tmrlvi/kaspa-miner/workflows/ci/badge.svg)](https://github.com/tmrlvi/kaspa-miner/actions)
-[![Latest version](https://img.shields.io/crates/v/kaspa-miner.svg)](https://crates.io/crates/kaspa-miner)
-![License](https://img.shields.io/crates/l/kaspa-miner.svg)
-[![dependency status](https://deps.rs/repo/github/tmrlvi/kaspa-miner/status.svg)](https://deps.rs/repo/github/tmrlvi/kaspa-miner)
+# kHeavyHash-Miner
 
-[![Discord](https://discordapp.com/api/guilds/599153230659846165/embed.png)](https://discord.gg/kS3SK5F36R)
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Kaspaenglish)
-
+[![Build status](https://github.com/ZorkNetwork/kheavyhash-miner/workflows/ci/badge.svg)](https://github.com/ZorkNetwork/kheavyhash-miner/actions)
+[![dependency status](https://deps.rs/repo/github/ZorkNetwork/kheavyhash-miner/status.svg)](https://deps.rs/repo/github/ZorkNetwork/kheavyhash-miner)
 
 ## Installation
-### From Sources
-Installing via `cargo install` is not supported for the latest version.
-
-The regular version is still available at
-```sh
-cargo install kaspa-miner
-```
 
 ### From Git Sources
 
-If you are looking to build from the repository (for debug / extension), note that the plugins are additional
-packages in the workspace. To compile a specific package, you run the following command or any subset of it
+The plugins are additional packages in the workspace. To compile specific packages:
 
 ```sh
-git clone git@github.com:tmrlvi/kaspa-miner.git
-cd kaspa-miner
-cargo build --release -p kaspa-miner -p kaspacuda -p kaspaopencl
+git clone git@github.com:ZorkNetwork/kheavyhash-miner.git
+cd kheavyhash-miner
+cargo build --release -p kheavyhash-miner -p kaspacuda -p kaspaopencl
 ```
-And, the miner (and plugins) will be in `targets/release`. You can replace the last line with
+
+The miner (and plugins) will be in `target/release`. You can replace the last line with:
+
 ```sh
 cargo build --release --all
 ```
 
 ### From Binaries
-The [release page](https://github.com/tmrlvi/kaspa-miner/releases) includes precompiled binaries for Linux, and Windows (for the GPU version).
+The [release page](https://github.com/ZorkNetwork/kheavyhash-miner/releases) includes precompiled binaries for Linux and Windows (for the GPU version).
 
 ### Removing Plugins
-To remove a plugin, you simply remove the corresponding `dll`/`so` for the directory of the miner. 
 
-* `libkaspacuda.so`, `libkaspacuda.dll`: Cuda support for Kaspa-Miner
-* `libkaspaopencl.so`, `libkaspaopencl.dll`: OpenCL support for Kaspa-Miner
+To remove a plugin, remove the corresponding `dll`/`so` from the miner directory.
+
+* `libkaspacuda.so`, `libkaspacuda.dll`: CUDA support for kHeavyHash-Miner
+* `libkaspaopencl.so`, `libkaspaopencl.dll`: OpenCL support for kHeavyHash-Miner
 
 # Usage
+
+## Kaspa
 To start mining, you need to run [kaspad](https://github.com/kaspanet/kaspad) and have an address to send the rewards to.
-Here is a guidance on how to run a full node and how to generate addresses: https://github.com/kaspanet/docs/blob/main/Getting%20Started/Full%20Node%20Installation.md
+Here is guidance on how to run a full node and how to generate addresses: https://github.com/kaspanet/docs/blob/main/Getting%20Started/Full%20Node%20Installation.md
+
+## Zorkcoin
+For Zorkcoin, use a `stratum+tcp://` pool URL with a zorkcoin address following the
+`--kaspad-address` (see `--help`).
 
 Help:
+
 ```
-kaspa-miner 
-A Kaspa high performance CPU miner
+kheavyhash-miner
+kHeavyHash-Miner — A CPU/GPU kHeavyHash algorithm miner
 
 USAGE:
-    kaspa-miner [OPTIONS] --mining-address <MINING_ADDRESS>
+    kheavyhash-miner [OPTIONS] --mining-address <MINING_ADDRESS>
 
 OPTIONS:
     -a, --mining-address <MINING_ADDRESS>                  The Kaspa address for the miner reward
@@ -82,19 +79,19 @@ OPTIONS:
         --testnet                                          Use testnet instead of mainnet [default: false]
 ```
 
-To start mining, you just need to run the following:
+To start mining against a local Kaspa node:
 
-`./kaspa-miner --mining-address kaspa:XXXXX`
+`./kheavyhash-miner --mining-address kaspa:XXXXX`
 
-This will run the miner on all the available GPU devcies.
+This will run the miner on all available GPU devices when plugins are present.
 
 # Devfund
 
 The devfund is a fund managed by the Kaspa community in order to fund Kaspa development <br>
 A miner that wants to mine higher percentage into the dev-fund can pass the following flags: <br>
-`--devfund-precent=XX.YY` to mine only XX.YY% of the blocks into the devfund.
+`--devfund-percent=XX.YY` to mine only XX.YY% of the blocks into the devfund.
 
-**This version automatically sets the devfund donation to the community designated address. 
+**This version automatically sets the devfund donation to the community designated address.
 Due to community decision, the minimum amount in the precompiled binaries is 2%**
 
 # Donation Addresses

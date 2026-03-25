@@ -1,9 +1,9 @@
 #[macro_use]
-extern crate kaspa_miner;
+extern crate kheavyhash_miner;
 
 use clap::{ArgMatches, FromArgMatches};
 use cust::prelude::*;
-use kaspa_miner::{Plugin, Worker, WorkerSpec};
+use kheavyhash_miner::{Plugin, Worker, WorkerSpec};
 use log::LevelFilter;
 use std::error::Error as StdError;
 #[cfg(feature = "overclock")]
@@ -57,17 +57,43 @@ impl Plugin for CudaPlugin {
     }
 
     //noinspection RsTypeCheck
-    fn process_option(&mut self, matches: &ArgMatches) -> Result<usize, kaspa_miner::Error> {
+    fn process_option(&mut self, matches: &ArgMatches) -> Result<usize, kheavyhash_miner::Error> {
         let opts: CudaOpt = CudaOpt::from_arg_matches(matches)?;
 
         self._enabled = !opts.cuda_disable;
         if self._enabled {
-            let gpus: Vec<u16> = match &opts.cuda_device {
-                Some(devices) => devices.clone(),
-                None => {
-                    let gpu_count = Device::num_devices().unwrap() as u16;
-                    (0..gpu_count).collect()
+            let num_devices = match Device::num_devices() {
+                Ok(n) => n as u16,
+                Err(e) => {
+                    self._enabled = false;
+                    return Err(format!(
+                        "CUDA is not usable ({}). No NVIDIA GPU, driver, or working CUDA runtime. \
+                         Pass --cuda-disable if you use CPU/OpenCL only.",
+                        e
+                    )
+                    .into());
                 }
+            };
+            if num_devices == 0 {
+                self._enabled = false;
+                return Err("No CUDA devices found. Pass --cuda-disable if you use CPU/OpenCL only.".into());
+            }
+
+            let gpus: Vec<u16> = match &opts.cuda_device {
+                Some(devices) => {
+                    for &d in devices {
+                        if d >= num_devices {
+                            self._enabled = false;
+                            return Err(format!(
+                                "CUDA device index {} is out of range ({} device(s) available)",
+                                d, num_devices
+                            )
+                            .into());
+                        }
+                    }
+                    devices.clone()
+                }
+                None => (0..num_devices).collect(),
             };
 
             // if any of cuda_lock_core_clocks / cuda_lock_mem_clocks / cuda_power_limit is valid, init nvml and try to apply
@@ -149,8 +175,13 @@ struct CudaWorkerSpec {
 
 impl WorkerSpec for CudaWorkerSpec {
     fn id(&self) -> String {
-        let device = Device::get_device(self.device_id).unwrap();
-        format!("#{} ({})", self.device_id, device.name().unwrap())
+        match Device::get_device(self.device_id) {
+            Ok(device) => match device.name() {
+                Ok(name) => format!("#{} ({})", self.device_id, name),
+                Err(_) => format!("#{} (CUDA)", self.device_id),
+            },
+            Err(_) => format!("#{} (CUDA device unavailable)", self.device_id),
+        }
     }
 
     fn build(&self) -> Box<dyn Worker> {

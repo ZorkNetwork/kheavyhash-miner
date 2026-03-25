@@ -462,8 +462,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aab8fc367588b89dcee83ab0fd66b72b50b72fa1904d7095045ace2b0c81c35"
 
 [[package]]
-name = "kaspa-miner"
-version = "0.2.1-GPU-0.1"
+name = "kheavyhash-miner"
+version = "1.0.0-ZN"
 dependencies = [
  "blake2b_simd",
  "cc",
@@ -491,7 +491,7 @@ dependencies = [
  "clap",
  "cust",
  "env_logger",
- "kaspa-miner",
+ "kheavyhash-miner",
  "log",
  "rand",
 ]

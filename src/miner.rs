@@ -13,7 +13,7 @@ use tokio::task::{self, JoinHandle};
 use tokio::time::MissedTickBehavior;
 
 use crate::pow::BlockSeed;
-use kaspa_miner::{PluginManager, WorkerSpec};
+use kheavyhash_miner::{PluginManager, WorkerSpec};
 
 type MinerHandler = std::thread::JoinHandle<Result<(), Error>>;
 

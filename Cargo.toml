@@ -1,12 +1,13 @@
 [package]
-name = "kaspa-miner"
-version = "0.2.1-GPU-0.7"
+name = "kheavyhash-miner"
+version = "1.0.0-ZN"
 edition = "2021"
 license = "MIT/Apache-2.0"
 authors = ["Elichai <elichai.turkel@gmail.com>"]
-repository = "https://github.com/tmrlvi/kaspa-miner"
+repository = "https://github.com/ZorkNetwork/kheavyhash-miner"
+homepage = "https://github.com/ZorkNetwork/kheavyhash-miner"
 readme = "README.md"
-description = "A fast CPU & GPU miner for Kaspa"
+description = "A fast CPU & GPU kHeavyHash miner for Kaspa (gRPC) and Zorkcoin (stratum)"
 categories = ["command-line-utilities"]
 keywords = ["blockchain", "cli"]
 include = [
