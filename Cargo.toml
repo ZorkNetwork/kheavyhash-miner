@@ -13,6 +13,7 @@ keywords = ["blockchain", "cli"]
 include = [
     "src/**/*.rs",
     "src/**/*.s",
+    "src/**/*.S",
     "proto/**",
     "Cargo.toml",
     "Cargo.lock",

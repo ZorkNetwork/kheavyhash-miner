@@ -45,6 +45,22 @@ jobs:
           command: check
           args: --tests
 
+      - name: Install RISC-V cross compiler
+        run: |
+          sudo apt update
+          sudo apt install -y gcc-riscv64-linux-gnu
+
+      - name: Add RISC-V rust target
+        run: rustup target add riscv64gc-unknown-linux-gnu
+
+      - name: Cargo check (riscv64gc)
+        uses: actions-rs/cargo@v1
+        env:
+          CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
+        with:
+          command: check
+          args: --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-gnu
+
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
