@@ -4,7 +4,7 @@ on:
     types: [ published ]
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   attestations: write
 
@@ -19,7 +19,10 @@ jobs:
       matrix:
         # Build gnu-linux on ubuntu-24.04 and musl on ubuntu latest
         os: [ ubuntu-24.04, windows-latest, macos-latest ]
-        features: ["default", "kaspacuda/overclock "]
+        features: ["default", "kaspacuda/overclock"]
+        exclude:
+          - os: macos-latest
+            features: "kaspacuda/overclock"
     name: Building, ${{ matrix.os }} ${{ matrix.features }}
     steps:
       - name: Fix CRLF on Windows
@@ -40,6 +43,10 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS x86_64 Rust target
+        if: matrix.os == 'macos-latest'
+        run: rustup target add x86_64-apple-darwin
 
       - name: Install CUDA Linux
         if: runner.os == 'Linux'
@@ -151,6 +158,7 @@ jobs:
 
       - name: Build ARM64 binary
         env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
         run: |
           cargo build --target=${{ matrix.target }} --release -p kheavyhash-miner
