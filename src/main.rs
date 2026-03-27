@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use clap::{Command, CommandFactory, FromArgMatches};
 use kheavyhash_miner::PluginManager;
 use log::{error, info};
-use rand::RngCore;
+use rand::Rng;
 use std::fs;
 use std::sync::atomic::AtomicU16;
 use std::sync::Arc;

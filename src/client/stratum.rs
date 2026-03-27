@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use futures_util::TryStreamExt;
 use log::{error, info, warn};
 use num::Float;
-use rand::RngCore;
+use rand::Rng;
 use statum_codec::NewLineJsonCodec;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::Mutex;

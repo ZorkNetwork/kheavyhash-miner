@@ -11,7 +11,7 @@ use crate::{miner::MinerManager, Error};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use log::{error, info, warn};
-use rand::RngCore;
+use rand::Rng;
 use semver::Version;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;

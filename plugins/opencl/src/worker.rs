@@ -13,7 +13,7 @@ use opencl3::memory::{Buffer, ClMem, CL_MAP_WRITE, CL_MEM_READ_ONLY, CL_MEM_READ
 use opencl3::platform::Platform;
 use opencl3::program::{Program, CL_FINITE_MATH_ONLY, CL_MAD_ENABLE, CL_STD_2_0};
 use opencl3::types::{cl_event, cl_uchar, cl_ulong, CL_BLOCKING};
-use rand::{Rng, RngCore};
+use rand::{Rng, RngExt};
 use std::borrow::Borrow;
 use std::ffi::c_void;
 use std::ptr;

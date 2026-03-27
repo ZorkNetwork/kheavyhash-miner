@@ -7,7 +7,7 @@ use cust::prelude::*;
 use kheavyhash_miner::xoshiro256starstar::Xoshiro256StarStar;
 use kheavyhash_miner::Worker;
 use log::{error, info};
-use rand::{Rng, RngCore};
+use rand::{Rng, RngExt};
 use std::ffi::CString;
 use std::sync::{Arc, Weak};
 

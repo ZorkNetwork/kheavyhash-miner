@@ -322,7 +322,7 @@ mod benches {
     use self::test::{black_box, Bencher};
     use super::{Matrix, XoShiRo256PlusPlus};
     use crate::Hash;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[bench]
     pub fn bench_compute_rank(bh: &mut Bencher) {

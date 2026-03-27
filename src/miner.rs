@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::{pow, watch, Error};
 use log::{error, info, warn};
-use rand::RngCore;
+use rand::Rng;
 use tokio::sync::mpsc::Sender;
 use tokio::task::{self, JoinHandle};
 use tokio::time::MissedTickBehavior;
@@ -470,7 +470,7 @@ mod benches {
     use self::test::{black_box, Bencher};
     use crate::pow::State;
     use crate::proto::{RpcBlock, RpcBlockHeader};
-    use rand::RngCore;
+    use rand::Rng;
 
     #[bench]
     pub fn bench_mining(bh: &mut Bencher) {
