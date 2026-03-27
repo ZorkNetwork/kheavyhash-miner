@@ -8,7 +8,7 @@ use log::LevelFilter;
 use std::error::Error as StdError;
 #[cfg(feature = "overclock")]
 use {
-    log::{error, info},
+    log::{error, info, warn},
     nvml_wrapper::Device as NvmlDevice,
     nvml_wrapper::Nvml,
 };
@@ -26,7 +26,7 @@ const DEFAULT_WORKLOAD_SCALE: f32 = 1024.;
 pub struct CudaPlugin {
     specs: Vec<CudaWorkerSpec>,
     #[cfg(feature = "overclock")]
-    nvml_instance: Nvml,
+    nvml_instance: Option<Nvml>,
     _enabled: bool,
 }
 
@@ -38,7 +38,7 @@ impl CudaPlugin {
             specs: Vec::new(),
             _enabled: false,
             #[cfg(feature = "overclock")]
-            nvml_instance: Nvml::init()?,
+            nvml_instance: None,
         })
     }
 }
@@ -102,47 +102,76 @@ impl Plugin for CudaPlugin {
                 || opts.overclock.cuda_lock_mem_clocks.is_some()
                 || opts.overclock.cuda_power_limits.is_some()
             {
-                for i in 0..gpus.len() {
-                    let lock_mem_clock: Option<u32> = match &opts.overclock.cuda_lock_mem_clocks {
-                        Some(mem_clocks) if i < mem_clocks.len() => Some(mem_clocks[i]),
-                        Some(mem_clocks) if !mem_clocks.is_empty() => Some(*mem_clocks.last().unwrap()),
-                        _ => None,
+                if self.nvml_instance.is_none() {
+                    self.nvml_instance = match Nvml::init() {
+                        Ok(nvml) => Some(nvml),
+                        Err(e) => {
+                            if opts.overclock.overclock_fallback {
+                                warn!(
+                                    "CUDA overclock requested but NVML initialization failed ({}). \
+                                     Continuing without overclock operations due to --overclock-fallback.",
+                                    e
+                                );
+                                None
+                            } else {
+                                self._enabled = false;
+                                return Err(format!(
+                                    "CUDA overclock requested, but NVML initialization failed ({}). \
+                                     Overclock mode cannot be performed on this system. \
+                                     Pass --overclock-fallback to continue without overclock.",
+                                    e
+                                )
+                                .into());
+                            }
+                        }
                     };
+                }
 
-                    let lock_core_clock: Option<u32> = match &opts.overclock.cuda_lock_core_clocks {
-                        Some(core_clocks) if i < core_clocks.len() => Some(core_clocks[i]),
-                        Some(core_clocks) if !core_clocks.is_empty() => Some(*core_clocks.last().unwrap()),
-                        _ => None,
-                    };
+                if let Some(nvml_instance) = self.nvml_instance.as_ref() {
+                    for i in 0..gpus.len() {
+                        let lock_mem_clock: Option<u32> = match &opts.overclock.cuda_lock_mem_clocks {
+                            Some(mem_clocks) if i < mem_clocks.len() => Some(mem_clocks[i]),
+                            Some(mem_clocks) if !mem_clocks.is_empty() => Some(*mem_clocks.last().unwrap()),
+                            _ => None,
+                        };
 
-                    let power_limit: Option<u32> = match &opts.overclock.cuda_power_limits {
-                        Some(power_limits) if i < power_limits.len() => Some(power_limits[i]),
-                        Some(power_limits) if !power_limits.is_empty() => Some(*power_limits.last().unwrap()),
-                        _ => None,
-                    };
+                        let lock_core_clock: Option<u32> = match &opts.overclock.cuda_lock_core_clocks {
+                            Some(core_clocks) if i < core_clocks.len() => Some(core_clocks[i]),
+                            Some(core_clocks) if !core_clocks.is_empty() => Some(*core_clocks.last().unwrap()),
+                            _ => None,
+                        };
 
-                    let mut nvml_device: NvmlDevice = self.nvml_instance.device_by_index(gpus[i] as u32)?;
+                        let power_limit: Option<u32> = match &opts.overclock.cuda_power_limits {
+                            Some(power_limits) if i < power_limits.len() => Some(power_limits[i]),
+                            Some(power_limits) if !power_limits.is_empty() => Some(*power_limits.last().unwrap()),
+                            _ => None,
+                        };
 
-                    if let Some(lmc) = lock_mem_clock {
-                        match nvml_device.set_mem_locked_clocks(lmc, lmc) {
-                            Err(e) => error!("set mem locked clocks {:?}", e),
-                            _ => info!("GPU #{} #{} lock mem clock at {} Mhz", i, &nvml_device.name()?, &lmc),
+                        let mut nvml_device: NvmlDevice = nvml_instance.device_by_index(gpus[i] as u32)?;
+
+                        if let Some(lmc) = lock_mem_clock {
+                            match nvml_device.set_mem_locked_clocks(lmc, lmc) {
+                                Err(e) => error!("set mem locked clocks {:?}", e),
+                                _ => info!("GPU #{} #{} lock mem clock at {} Mhz", i, &nvml_device.name()?, &lmc),
+                            };
+                        }
+
+                        if let Some(lcc) = lock_core_clock {
+                            match nvml_device.set_gpu_locked_clocks(lcc, lcc) {
+                                Err(e) => error!("set gpu locked clocks {:?}", e),
+                                _ => info!("GPU #{} #{} lock core clock at {} Mhz", i, &nvml_device.name()?, &lcc),
+                            };
+                        };
+
+                        if let Some(pl) = power_limit {
+                            match nvml_device.set_power_management_limit(pl * 1000) {
+                                Err(e) => error!("set power limit {:?}", e),
+                                _ => info!("GPU #{} #{} power limit at {} W", i, &nvml_device.name()?, &pl),
+                            };
                         };
                     }
-
-                    if let Some(lcc) = lock_core_clock {
-                        match nvml_device.set_gpu_locked_clocks(lcc, lcc) {
-                            Err(e) => error!("set gpu locked clocks {:?}", e),
-                            _ => info!("GPU #{} #{} lock core clock at {} Mhz", i, &nvml_device.name()?, &lcc),
-                        };
-                    };
-
-                    if let Some(pl) = power_limit {
-                        match nvml_device.set_power_management_limit(pl * 1000) {
-                            Err(e) => error!("set power limit {:?}", e),
-                            _ => info!("GPU #{} #{} power limit at {} W", i, &nvml_device.name()?, &pl),
-                        };
-                    };
+                } else {
+                    info!("Overclock mode enabled without NVML operations; running non-overclock CUDA path.");
                 }
             }
 
@@ -159,6 +188,20 @@ impl Plugin for CudaPlugin {
                     random: opts.cuda_nonce_gen,
                 })
                 .collect();
+
+            // Preflight worker initialization so CUDA/PTX failures are reported gracefully
+            // during startup rather than panicking later in worker threads.
+            for spec in &self.specs {
+                if let Err(e) = CudaGPUWorker::preflight(spec.device_id, spec.blocking_sync) {
+                    self._enabled = false;
+                    return Err(format!(
+                        "Failed to initialize CUDA worker for device #{} ({}). \
+                         This is usually a PTX/driver compatibility issue.",
+                        spec.device_id, e
+                    )
+                    .into());
+                }
+            }
         }
         Ok(self.specs.len())
     }

@@ -22,6 +22,11 @@ impl FromStr for NonceGenEnum {
 #[cfg(feature = "overclock")]
 #[derive(clap::Args, Debug, Default)]
 pub struct OverClock {
+    #[clap(
+        long = "overclock-fallback",
+        help = "If NVML initialization fails, continue mining without overclock operations"
+    )]
+    pub overclock_fallback: bool,
     #[clap(long = "cuda-lock-mem-clocks", use_value_delimiter = true, help = "Lock mem clocks eg: ,810, [default: 0]")]
     pub cuda_lock_mem_clocks: Option<Vec<u32>>,
     #[clap(

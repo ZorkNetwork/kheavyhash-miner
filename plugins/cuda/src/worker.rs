@@ -13,6 +13,14 @@ use std::sync::{Arc, Weak};
 
 static BPS: f32 = 1.;
 
+/// CUDA 12.8.x generated PTX (PTX ISA 8.7); try first for broad driver coverage.
+static PTX_86_1281: &str = include_str!("../resources/kaspa-cuda-sm86-1281.ptx");
+static PTX_89: &str = include_str!("../resources/kaspa-cuda-sm89.ptx");
+static PTX_90: &str = include_str!("../resources/kaspa-cuda-sm90.ptx");
+static PTX_100: &str = include_str!("../resources/kaspa-cuda-sm100.ptx");
+static PTX_75_1281: &str = include_str!("../resources/kaspa-cuda-sm75-1281.ptx");
+static PTX_61_1281: &str = include_str!("../resources/kaspa-cuda-sm61-1281.ptx");
+/// Pre-12.8 toolchain PTX (broader JIT compatibility); fallback after `-1281` fails.
 static PTX_86: &str = include_str!("../resources/kaspa-cuda-sm86.ptx");
 static PTX_75: &str = include_str!("../resources/kaspa-cuda-sm75.ptx");
 static PTX_61: &str = include_str!("../resources/kaspa-cuda-sm61.ptx");
@@ -28,9 +36,8 @@ pub struct Kernel<'kernel> {
 impl<'kernel> Kernel<'kernel> {
     pub fn new(module: Weak<Module>, name: &'kernel str) -> Result<Kernel<'kernel>, Error> {
         let func = Arc::new(unsafe {
-            module.as_ptr().as_ref().unwrap().get_function(name).map_err(|e| {
+            module.as_ptr().as_ref().unwrap().get_function(name).inspect_err(|e| {
                 error!("Error loading function: {}", e);
-                e
             })?
         });
         let (_, block_size) = func.suggested_launch_configuration(0, 0.into())?;
@@ -47,7 +54,7 @@ impl<'kernel> Kernel<'kernel> {
     }
 
     pub fn set_workload(&mut self, workload: u32) {
-        self.grid_size = (workload + self.block_size - 1) / self.block_size
+        self.grid_size = workload.div_ceil(self.block_size)
     }
 }
 
@@ -140,6 +147,122 @@ impl<'gpu> Worker for CudaGPUWorker<'gpu> {
 }
 
 impl<'gpu> CudaGPUWorker<'gpu> {
+    fn load_ptx_with_fallback(candidates: &[(&'static str, &'static str)]) -> Result<Arc<Module>, Error> {
+        let mut last_error: Option<cust::error::CudaError> = None;
+
+        for (idx, (label, ptx)) in candidates.iter().enumerate() {
+            let has_fallback = idx + 1 < candidates.len();
+            match Module::from_ptx(*ptx, &[ModuleJitOption::OptLevel(OptLevel::O4)]) {
+                Ok(module) => {
+                    info!("Loaded CUDA module using PTX target {}", label);
+                    return Ok(Arc::new(module));
+                }
+                Err(e) => {
+                    if has_fallback {
+                        log::warn!("Failed loading PTX target {} ({}); trying fallback target", label, e);
+                    } else {
+                        error!("Failed loading PTX target {} ({})", label, e);
+                    }
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        match last_error {
+            Some(e) => Err(e.into()),
+            None => Err("No PTX candidates were available for this device".into()),
+        }
+    }
+
+    fn load_module_for_device(device_id: u32, device: &Device) -> Result<Arc<Module>, Error> {
+        let major = device.get_attribute(DeviceAttribute::ComputeCapabilityMajor)?;
+        let minor = device.get_attribute(DeviceAttribute::ComputeCapabilityMinor)?;
+        info!("Device #{} compute version is {}.{}", device_id, major, minor);
+        let candidates: &[(&str, &str)] = if major >= 10 {
+            &[
+                ("sm_100", PTX_100),
+                ("sm_90", PTX_90),
+                ("sm_89", PTX_89),
+                ("sm_86-1281", PTX_86_1281),
+                ("sm_86", PTX_86),
+                ("sm_75-1281", PTX_75_1281),
+                ("sm_75", PTX_75),
+                ("sm_61-1281", PTX_61_1281),
+                ("sm_61", PTX_61),
+                ("sm_30", PTX_30),
+                ("sm_20", PTX_20),
+            ]
+        } else if major >= 9 {
+            &[
+                ("sm_90", PTX_90),
+                ("sm_89", PTX_89),
+                ("sm_86-1281", PTX_86_1281),
+                ("sm_86", PTX_86),
+                ("sm_75-1281", PTX_75_1281),
+                ("sm_75", PTX_75),
+                ("sm_61-1281", PTX_61_1281),
+                ("sm_61", PTX_61),
+                ("sm_30", PTX_30),
+                ("sm_20", PTX_20),
+            ]
+        } else if major == 8 && minor >= 9 {
+            &[
+                ("sm_89", PTX_89),
+                ("sm_86-1281", PTX_86_1281),
+                ("sm_86", PTX_86),
+                ("sm_75-1281", PTX_75_1281),
+                ("sm_75", PTX_75),
+                ("sm_61-1281", PTX_61_1281),
+                ("sm_61", PTX_61),
+                ("sm_30", PTX_30),
+                ("sm_20", PTX_20),
+            ]
+        } else if major > 8 || (major == 8 && minor >= 6) {
+            &[
+                ("sm_86-1281", PTX_86_1281),
+                ("sm_86", PTX_86),
+                ("sm_75-1281", PTX_75_1281),
+                ("sm_75", PTX_75),
+                ("sm_61-1281", PTX_61_1281),
+                ("sm_61", PTX_61),
+                ("sm_30", PTX_30),
+                ("sm_20", PTX_20),
+            ]
+        } else if major > 7 || (major == 7 && minor >= 5) {
+            &[
+                ("sm_75-1281", PTX_75_1281),
+                ("sm_75", PTX_75),
+                ("sm_61-1281", PTX_61_1281),
+                ("sm_61", PTX_61),
+                ("sm_30", PTX_30),
+                ("sm_20", PTX_20),
+            ]
+        } else if major > 6 || (major == 6 && minor >= 1) {
+            &[("sm_61-1281", PTX_61_1281), ("sm_61", PTX_61), ("sm_30", PTX_30), ("sm_20", PTX_20)]
+        } else if major >= 3 {
+            &[("sm_30", PTX_30), ("sm_20", PTX_20)]
+        } else if major >= 2 {
+            &[("sm_20", PTX_20)]
+        } else {
+            return Err("Cuda compute version not supported".into());
+        };
+
+        Self::load_ptx_with_fallback(candidates)
+    }
+
+    pub fn preflight(device_id: u32, blocking_sync: bool) -> Result<(), Error> {
+        let sync_flag = match blocking_sync {
+            true => ContextFlags::SCHED_BLOCKING_SYNC,
+            false => ContextFlags::SCHED_AUTO,
+        };
+        let device = Device::get_device(device_id)?;
+        let context = Context::new(device)?;
+        context.set_flags(sync_flag)?;
+
+        let _module = Self::load_module_for_device(device_id, &device)?;
+        Ok(())
+    }
+
     pub fn new(
         device_id: u32,
         workload: f32,
@@ -156,38 +279,7 @@ impl<'gpu> CudaGPUWorker<'gpu> {
         let _context = Context::new(device)?;
         _context.set_flags(sync_flag)?;
 
-        let major = device.get_attribute(DeviceAttribute::ComputeCapabilityMajor)?;
-        let minor = device.get_attribute(DeviceAttribute::ComputeCapabilityMinor)?;
-        let _module: Arc<Module>;
-        info!("Device #{} compute version is {}.{}", device_id, major, minor);
-        if major > 8 || (major == 8 && minor >= 6) {
-            _module = Arc::new(Module::from_ptx(PTX_86, &[ModuleJitOption::OptLevel(OptLevel::O4)]).map_err(|e| {
-                error!("Error loading PTX. Make sure you have the updated driver for you devices");
-                e
-            })?);
-        } else if major > 7 || (major == 7 && minor >= 5) {
-            _module = Arc::new(Module::from_ptx(PTX_75, &[ModuleJitOption::OptLevel(OptLevel::O4)]).map_err(|e| {
-                error!("Error loading PTX. Make sure you have the updated driver for you devices");
-                e
-            })?);
-        } else if major > 6 || (major == 6 && minor >= 1) {
-            _module = Arc::new(Module::from_ptx(PTX_61, &[ModuleJitOption::OptLevel(OptLevel::O4)]).map_err(|e| {
-                error!("Error loading PTX. Make sure you have the updated driver for you devices");
-                e
-            })?);
-        } else if major >= 3 {
-            _module = Arc::new(Module::from_ptx(PTX_30, &[ModuleJitOption::OptLevel(OptLevel::O4)]).map_err(|e| {
-                error!("Error loading PTX. Make sure you have the updated driver for you devices");
-                e
-            })?);
-        } else if major >= 2 {
-            _module = Arc::new(Module::from_ptx(PTX_20, &[ModuleJitOption::OptLevel(OptLevel::O4)]).map_err(|e| {
-                error!("Error loading PTX. Make sure you have the updated driver for you devices");
-                e
-            })?);
-        } else {
-            return Err("Cuda compute version not supported".into());
-        }
+        let _module = Self::load_module_for_device(device_id, &device)?;
 
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
