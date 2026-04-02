@@ -33,10 +33,24 @@ fn register_freeze_handler() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn trigger_freeze_handler(kill_switch: Arc<AtomicBool>, handle: &MinerHandler) -> std::thread::JoinHandle<()> {
     use std::os::unix::thread::JoinHandleExt;
+    // musl defines `pthread_t` as `*mut c_void` (not `Send`); pass the same bits as `usize` into the thread.
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
+    let pthread_bits = handle.as_pthread_t() as usize;
+    #[cfg(not(all(target_os = "linux", target_env = "musl")))]
     let pthread_handle = handle.as_pthread_t();
     std::thread::spawn(move || {
         sleep(Duration::from_millis(1000));
         if kill_switch.load(Ordering::SeqCst) {
+            let pthread_handle: nix::libc::pthread_t = {
+                #[cfg(all(target_os = "linux", target_env = "musl"))]
+                {
+                    pthread_bits as *mut std::ffi::c_void as nix::libc::pthread_t
+                }
+                #[cfg(not(all(target_os = "linux", target_env = "musl")))]
+                {
+                    pthread_handle
+                }
+            };
             match nix::sys::pthread::pthread_kill(pthread_handle, nix::sys::signal::Signal::SIGUSR1) {
                 Ok(()) => {
                     info!("Thread killed successfully")

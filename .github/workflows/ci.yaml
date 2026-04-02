@@ -60,16 +60,53 @@ jobs:
       - name: Add Apple ARM64 rust target (cross-check from Linux)
         run: rustup target add aarch64-apple-darwin
 
-      - name: Cargo check (riscv64gc)
+      - name: Cargo check (riscv64gc gnu)
         env:
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
           CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
         run: cargo check --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-gnu
 
-      - name: Cargo check (aarch64)
+      - name: Cargo check (aarch64 gnu)
         env:
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
         run: cargo check --tests -p kheavyhash-miner --target aarch64-unknown-linux-gnu
+
+      - name: Install Zig and LLVM (Linux musl cross-check)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils
+          ZIG_VER=0.13.0
+          curl -sSL "https://ziglang.org/download/${ZIG_VER}/zig-linux-x86_64-${ZIG_VER}.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C /tmp
+          sudo mv "/tmp/zig-linux-x86_64-${ZIG_VER}" /opt/zig
+          echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Add Linux musl Rust targets
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          rustup target add aarch64-unknown-linux-musl
+          rustup target add riscv64gc-unknown-linux-musl
+
+      - name: Cargo zig check (x86_64-unknown-linux-musl)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo zigbuild --tests -p kheavyhash-miner --target x86_64-unknown-linux-musl
+
+      - name: Cargo zig check (aarch64-unknown-linux-musl)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo zigbuild --tests -p kheavyhash-miner --target aarch64-unknown-linux-musl
+
+      - name: Cargo zig check (riscv64gc-unknown-linux-musl)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo zigbuild --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-musl
 
       # Keccak asm for macOS ARM64: build.rs forces `clang` when HOST is not Darwin so cc-rs uses
       # `--target=arm64-apple-macosx` instead of `-arch` (GCC). Requires LLVM/Clang on the runner.
@@ -81,8 +118,8 @@ jobs:
       - name: Cargo check (aarch64-apple-darwin, cross from Linux)
         run: cargo check --tests -p kheavyhash-miner --target aarch64-apple-darwin
 
-  check-apple-arm64:
-    name: Check Apple ARM64
+  check-macos:
+    name: Check macOS targets
     runs-on: macos-latest
     steps:
       - name: Checkout sources
@@ -94,11 +131,16 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add Apple ARM64 rust target
-        run: rustup target add aarch64-apple-darwin
+      - name: Add macOS rust targets
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
 
       - name: Cargo check (aarch64-apple-darwin)
         run: cargo check --tests -p kheavyhash-miner --target aarch64-apple-darwin
+
+      - name: Cargo check (x86_64-apple-darwin)
+        run: cargo check --tests -p kheavyhash-miner --target x86_64-apple-darwin
 
   test:
     name: Test Suite
@@ -244,6 +286,134 @@ jobs:
 
       - name: Run cargo test for kaspaopencl
         run: cargo test --release -p kaspaopencl
+
+  release-build-smoke:
+    name: Release build smoke
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            gpu_enabled: true
+            features: default
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            gpu_enabled: true
+            features: kaspacuda/overclock
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            gpu_enabled: false
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-latest
+            gpu_enabled: false
+            target: aarch64-unknown-linux-musl
+          - os: ubuntu-latest
+            gpu_enabled: false
+            target: riscv64gc-unknown-linux-musl
+          - os: macos-latest
+            gpu_enabled: false
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            gpu_enabled: false
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            gpu_enabled: true
+            features: default
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            gpu_enabled: true
+            features: kaspacuda/overclock
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            gpu_enabled: false
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Fix CRLF on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
+      - name: Fix LibOpenCL on Linux (GPU)
+        if: runner.os == 'Linux' && matrix.gpu_enabled == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ocl-icd-opencl-dev
+
+      - name: Install Protoc
+        uses: ./.github/actions/install-protoc
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install Zig (Linux musl)
+        if: runner.os == 'Linux' && contains(matrix.target, 'linux-musl')
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils
+          ZIG_VER=0.13.0
+          curl -sSL "https://ziglang.org/download/${ZIG_VER}/zig-linux-x86_64-${ZIG_VER}.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C /tmp
+          sudo mv "/tmp/zig-linux-x86_64-${ZIG_VER}" /opt/zig
+          echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Install cargo-zigbuild
+        if: runner.os == 'Linux' && contains(matrix.target, 'linux-musl')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Install CUDA Linux
+        if: runner.os == 'Linux' && matrix.gpu_enabled == true
+        uses: Jimver/cuda-toolkit@v0.2.30
+        with:
+          cuda: '12.8.1'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
+      - name: Install CUDA Windows
+        if: runner.os == 'Windows' && matrix.gpu_enabled == true
+        uses: Jimver/cuda-toolkit@v0.2.30
+        with:
+          cuda: '12.8.1'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
+      - name: Cache
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-release-smoke-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Release smoke build (GPU)
+        if: matrix.gpu_enabled == true
+        shell: bash
+        run: cargo build --release --all --features ${{ matrix.features }}
+
+      - name: Release smoke build (CPU musl)
+        if: matrix.gpu_enabled != true && contains(matrix.target, 'linux-musl')
+        shell: bash
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo zigbuild --release -p kheavyhash-miner --target ${{ matrix.target }}
+
+      - name: Release smoke build (CPU)
+        if: >-
+          matrix.gpu_enabled != true &&
+          (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-apple-darwin' ||
+          matrix.target == 'x86_64-pc-windows-msvc')
+        run: cargo build --release -p kheavyhash-miner --target ${{ matrix.target }}
 
   lints:
     name: Lints
