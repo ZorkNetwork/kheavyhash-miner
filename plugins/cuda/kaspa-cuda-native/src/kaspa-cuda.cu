@@ -75,7 +75,6 @@ extern "C" {
             uint8_t input[80];
             memcpy(input, hash_header, HASH_HEADER_SIZE);
             // data
-            // TODO: check endianity?
             uint256_t hash_;
             memcpy(input +  HASH_HEADER_SIZE, (uint8_t *)(&nonce), 8);
             hash(powP, hash_.hash, input);

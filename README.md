@@ -1,7 +1,6 @@
 # kHeavyHash-Miner
 
-[![Build status](https://github.com/ZorkNetwork/kheavyhash-miner/workflows/ci/badge.svg)](https://github.com/ZorkNetwork/kheavyhash-miner/actions)
-[![dependency status](https://deps.rs/repo/github/ZorkNetwork/kheavyhash-miner/status.svg)](https://deps.rs/repo/github/ZorkNetwork/kheavyhash-miner)
+[![Build Status](https://github.com/ZorkNetwork/kheavyhash-miner/actions/workflows/ci.yaml/badge.svg)](https://github.com/ZorkNetwork/kheavyhash-miner/actions/workflows/ci.yaml)   [![Dependency Status](https://deps.rs/repo/github/ZorkNetwork/kheavyhash-miner/status.svg)](https://deps.rs/repo/github/ZorkNetwork/kheavyhash-miner)
 
 ## Installation
 
@@ -22,7 +21,18 @@ cargo build --release --all
 ```
 
 ### From Binaries
-The [release page](https://github.com/ZorkNetwork/kheavyhash-miner/releases) includes precompiled binaries for Linux and Windows (for the GPU version).
+The [release page](https://github.com/ZorkNetwork/kheavyhash-miner/releases) includes precompiled binaries for several system types. These include:
+
+| O/S     | Processor       | Features       |
+|---------|-----------------|----------------|
+| Linux   | Intel/AMD       | GPU default    |
+| Linux   | Intel/AMD       | GPU overclock  |
+| Windows | Intel/AMD       | GPU default    |
+| Windows | Intel/AMD       | GPU overclock  |
+| MacOS   | Intel           | CPU Only       |
+| MacOS   | Apple Silicon   | CPU Only       |
+| Linux   | ARMv8 / aarch64 | CPU Only       |
+| Linux   | RISC-V          | CPU Only       |
 
 ### Removing Plugins
 

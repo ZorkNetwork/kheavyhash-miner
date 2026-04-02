@@ -62,6 +62,7 @@ jobs:
 
       - name: Cargo check (riscv64gc)
         env:
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
           CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
         run: cargo check --tests -p kheavyhash-miner --target riscv64gc-unknown-linux-gnu
 

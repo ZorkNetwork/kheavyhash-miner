@@ -21,25 +21,59 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Build gnu-linux on ubuntu-24.04 and musl on ubuntu latest
-        os: [ ubuntu-24.04, windows-latest, macos-latest ]
-        features: ["default", "kaspacuda/overclock"]
-        exclude:
+        include:
+          - os: ubuntu-24.04
+            features: default
+            cpu: x86_64
+            gpu_enabled: true
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04
+            features: kaspacuda/overclock
+            cpu: x86_64
+            gpu_enabled: true
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04
+            features: default
+            cpu: aarch64-linux
+            target: aarch64-unknown-linux-gnu
+            strip_prefix: aarch64-linux-gnu-
+          - os: ubuntu-24.04
+            features: default
+            cpu: riscv64-linux
+            target: riscv64gc-unknown-linux-gnu
+            strip_prefix: riscv64-linux-gnu-
           - os: macos-latest
-            features: "kaspacuda/overclock"
-    name: Building, ${{ matrix.os }} ${{ matrix.features }}
+            features: default
+            cpu: aarch64-darwin
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            features: default
+            cpu: x86_64
+            gpu_enabled: true
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            features: kaspacuda/overclock
+            cpu: x86_64
+            gpu_enabled: true
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            features: default
+            cpu: x86_64
+            target: x86_64-apple-darwin
+    name: Building, ${{ matrix.os }} ${{ matrix.features }} ${{ matrix.cpu }}
     steps:
       - name: Fix CRLF on Windows
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
 
       - name: Fix LibOpenCL on Linux
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.cpu == 'x86_64'
         run: |
+          set -euo pipefail
           sudo apt update
           sudo apt install ocl-icd-opencl-dev -y
 
-      - name: Check out code into the Go module directory
+      - name: Check out code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -51,65 +85,128 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Add macOS x86_64 Rust target
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest' && matrix.cpu == 'x86_64'
         run: rustup target add x86_64-apple-darwin
 
-      - name: Install CUDA Linux
-        if: runner.os == 'Linux'
+      - name: Add rust target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install CUDA
+        if: matrix.gpu_enabled == true
         uses: Jimver/cuda-toolkit@v0.2.30
         with:
           cuda: '12.8.1'
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
-      - name: Install CUDA Windows
-        if: runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.30
-        with:
-          cuda: '12.8.1'
-          method: 'network'
-          sub-packages: '["nvcc", "cudart"]'
-
-      - name: Build on Linux GNU
-        if: matrix.os == 'ubuntu-24.04'
-        # We're using musl to make the binaries statically linked and portable
+      - name: Install AArch64 cross compiler (Linux)
+        if: matrix.cpu == 'aarch64-linux'
         run: |
-          cargo build --target=x86_64-unknown-linux-gnu --release --all --features ${{ matrix.features }}
-          feature_name=${{ matrix.features }}
-          tag_name="${GITHUB_REF_NAME}"
-          asset_name="kheavyhash-miner-${tag_name}-${feature_name/\//-}-linux-gnu-amd64"
-          strip ./target/x86_64-unknown-linux-gnu/release/kheavyhash-miner
-          mkdir "${asset_name}"
-          mv ./target/x86_64-unknown-linux-gnu/release/kheavyhash-miner "${asset_name}/${asset_name}"
-          mv ./target/x86_64-unknown-linux-gnu/release/libkaspa*.so "${asset_name}/"
-          tar czvf "${asset_name}.tgz" "${asset_name}"
-          echo "archive=${asset_name}.tgz" >> "$GITHUB_ENV"
-          echo "asset_name=${asset_name}.tgz" >> "$GITHUB_ENV"
+          set -euo pipefail
+          sudo apt update
+          sudo apt install -y gcc-aarch64-linux-gnu
 
-      - name: Build on Windows
-        if: matrix.os == 'windows-latest'
+      - name: Install RISC-V cross compiler
+        if: matrix.cpu == 'riscv64-linux'
+        run: |
+          set -euo pipefail
+          sudo apt update
+          sudo apt install -y gcc-riscv64-linux-gnu
+
+      - name: GPU enabled build
+        if: matrix.gpu_enabled == true
         shell: bash
         run: |
-          cargo build --target=x86_64-pc-windows-msvc --release --all --features ${{ matrix.features }}
+          set -euo pipefail
+          cargo build --target=${{ matrix.target }} --release --all --features ${{ matrix.features }}
           feature_name=${{ matrix.features }}
           tag_name="${GITHUB_REF_NAME}"
-          asset_name="kheavyhash-miner-${tag_name}-${feature_name/\//-}-win64-amd64"
+          target="${{ matrix.target }}"
+          case "${target}" in
+            *linux*)
+              asset_suffix="linux-gnu-amd64"
+              exec_suffix=""
+              lib_suffix=".so"
+              ;;
+            *windows*)
+              asset_suffix="win64-amd64"
+              exec_suffix=".exe"
+              lib_suffix=".dll"
+              ;;
+            *)
+              asset_suffix="unknown"
+              exec_suffix=""
+              lib_suffix=".unknown"
+              ;;
+          esac
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            strip "./target/${{ matrix.target }}/release/kheavyhash-miner${exec_suffix}"
+          fi
+          asset_name="kheavyhash-miner-${tag_name}-${feature_name/\//-}-${asset_suffix}"
           mkdir "${asset_name}"
-          mv ./target/x86_64-pc-windows-msvc/release/kheavyhash-miner.exe "${asset_name}/${asset_name}.exe"
-          mv ./target/x86_64-pc-windows-msvc/release/kaspa*.dll "${asset_name}/"
-          bash ./integrations/windows/create_bat.sh "${asset_name}"
-          7z a -tzip -r "${asset_name}.zip" "${asset_name}"
-          echo "archive=${asset_name}.zip" >> "$GITHUB_ENV"
-          echo "asset_name=${asset_name}.zip" >> "$GITHUB_ENV"
+          tb="./target/${{ matrix.target }}/release"
+          mv "${tb}/kheavyhash-miner${exec_suffix}" "${asset_name}/${asset_name}${exec_suffix}"
+          mv "${tb}"/*${lib_suffix} "${asset_name}/"
+          if [ "${{ matrix.os }}" != "windows-latest" ]; then
+            tar czvf "${asset_name}.tgz" "${asset_name}"
+            echo "archive=${asset_name}.tgz" >> "$GITHUB_ENV"
+            echo "asset_name=${asset_name}.tgz" >> "$GITHUB_ENV"
+          else
+            bash ./integrations/windows/create_bat.sh "${asset_name}"
+            7z a -tzip -r "${asset_name}.zip" "${asset_name}"
+            echo "archive=${asset_name}.zip" >> "$GITHUB_ENV"
+            echo "asset_name=${asset_name}.zip" >> "$GITHUB_ENV"
+          fi
 
-      - name: Build on MacOS
-        if: matrix.os == 'macos-latest'
+      - name: CPU only build
+        if: matrix.gpu_enabled != true
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+          CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
         run: |
-          cargo build --target=x86_64-apple-darwin --release -p kheavyhash-miner
+          set -euo pipefail
+          cargo build --target=${{ matrix.target }} --release -p kheavyhash-miner
           tag_name="${GITHUB_REF_NAME}"
-          asset_name="kheavyhash-miner-${tag_name}-cpu-only-osx-amd64"
+          target="${{ matrix.target }}"
+          case "${target}" in
+            *linux*)
+              asset_os="linux"
+              ;;
+            *darwin*)
+              asset_os="macos"
+              ;;
+            *)
+              asset_os="unknown"
+              ;;
+          esac
+          strip_prefix="${{ matrix.strip_prefix }}"
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            "${strip_prefix}strip" --strip-all ./target/${{ matrix.target }}/release/kheavyhash-miner
+          else
+            strip ./target/${{ matrix.target }}/release/kheavyhash-miner
+          fi
+          cpu_name="${{ matrix.cpu }}"
+          case "${cpu_name}" in
+            *x86_64*)
+              asset_cpu="amd64"
+              ;;
+            *aarch64*)
+              asset_cpu="arm64"
+              ;;
+            *riscv64*)
+              asset_cpu="riscv64"
+              ;;
+            *)
+              asset_cpu="unknown"
+              ;;
+          esac
+          asset_name="kheavyhash-miner-${tag_name}-cpu-only-${asset_os}-${asset_cpu}"
           mkdir "${asset_name}"
-          mv ./target/x86_64-apple-darwin/release/kheavyhash-miner "${asset_name}/${asset_name}"
+          mv ./target/${{ matrix.target }}/release/kheavyhash-miner "${asset_name}/${asset_name}"
           tar czvf "${asset_name}.tgz" "${asset_name}"
           echo "archive=${asset_name}.tgz" >> "$GITHUB_ENV"
           echo "asset_name=${asset_name}.tgz" >> "$GITHUB_ENV"
@@ -123,8 +220,18 @@ jobs:
       - name: Set workflow artifact name
         shell: bash
         run: |
+          set -euo pipefail
           f='${{ matrix.features }}'
-          echo "workflow_artifact_name=${{ matrix.os }}-${f//\//-}-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          cpu='${{ matrix.cpu }}'
+          if [ "$cpu" = aarch64-linux ]; then
+            echo "workflow_artifact_name=ubuntu-24.04-aarch64-unknown-linux-gnu-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          elif [ "$cpu" = riscv64-linux ]; then
+            echo "workflow_artifact_name=ubuntu-24.04-riscv64gc-unknown-linux-gnu-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          elif [ "$cpu" = aarch64-darwin ]; then
+            echo "workflow_artifact_name=macos-latest-aarch64-apple-darwin-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          else
+            echo "workflow_artifact_name=${{ matrix.os }}-${f//\//-}-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -132,82 +239,17 @@ jobs:
           name: ${{ env.workflow_artifact_name }}
           path: "./${{ env.archive }}"
 
-  build-arm64:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            target: aarch64-unknown-linux-gnu
-            asset_suffix: linux-gnu-arm64
-            archive_ext: tgz
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            asset_suffix: osx-arm64
-            archive_ext: tgz
-    name: Building ARM64, ${{ matrix.target }}
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Protoc
-        uses: ./.github/actions/install-protoc
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install AArch64 cross compiler (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu
-
-      - name: Add rust target
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Build ARM64 binary
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-        run: |
-          cargo build --target=${{ matrix.target }} --release -p kheavyhash-miner
-          tag_name="${GITHUB_REF_NAME}"
-          asset_name="kheavyhash-miner-${tag_name}-cpu-only-${{ matrix.asset_suffix }}"
-          mkdir "${asset_name}"
-          mv ./target/${{ matrix.target }}/release/kheavyhash-miner "${asset_name}/${asset_name}"
-          if [ -d "./target/${{ matrix.target }}/release" ]; then
-            mv ./target/${{ matrix.target }}/release/libkaspa*.so "${asset_name}/" 2>/dev/null || true
-            mv ./target/${{ matrix.target }}/release/libkaspa*.dylib "${asset_name}/" 2>/dev/null || true
-          fi
-          tar czvf "${asset_name}.tgz" "${asset_name}"
-          echo "archive=${asset_name}.tgz" >> "$GITHUB_ENV"
-          echo "asset_name=${asset_name}.tgz" >> "$GITHUB_ENV"
-
-      - name: Generate artifact attestation
-        uses: actions/attest@v4
-        with:
-          subject-path: "./${{ env.archive }}"
-
-      - name: Upload ARM64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: "${{ matrix.os }}-${{ matrix.target }}-${{ env.asset_name }}"
-          path: "./${{ env.archive }}"
-
-  intergrations:
+  intergration:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        # Build gnu-linux on ubuntu-24.04 and musl on ubuntu latest
         itegration: [ hiveos ]
     name: Integrating, ${{ matrix.itegration }}
     steps:
       - name: Fix LibOpenCL on Linux
         run: |
+          set -euo pipefail
           sudo apt update
           sudo apt install ocl-icd-opencl-dev -y
 
@@ -232,6 +274,7 @@ jobs:
 
       - name: Build ${{ matrix.itegration }} Script
         run: |
+          set -euo pipefail
           cargo build --target=x86_64-unknown-linux-gnu --release --all
           tag_name="${GITHUB_REF_NAME}"
           binary_name="kheavyhash-miner-${tag_name}-linux-gnu-amd64"
@@ -260,8 +303,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build
-      - build-arm64
-      - intergrations
+      - intergration
     steps:
       - name: Check out code
         uses: actions/checkout@v4
