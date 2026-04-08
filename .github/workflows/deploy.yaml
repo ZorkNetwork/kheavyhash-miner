@@ -34,14 +34,16 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-24.04
             features: default
+            cpu: x86_64
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04
+            features: default
             cpu: aarch64-linux
-            target: aarch64-unknown-linux-gnu
-            strip_prefix: aarch64-linux-gnu-
+            target: aarch64-unknown-linux-musl
           - os: ubuntu-24.04
             features: default
             cpu: riscv64-linux
-            target: riscv64gc-unknown-linux-gnu
-            strip_prefix: riscv64-linux-gnu-
+            target: riscv64gc-unknown-linux-musl
           - os: macos-latest
             features: default
             cpu: aarch64-darwin
@@ -67,7 +69,7 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Fix LibOpenCL on Linux
-        if: runner.os == 'Linux' && matrix.cpu == 'x86_64'
+        if: runner.os == 'Linux' && matrix.cpu == 'x86_64' && matrix.gpu_enabled == true
         run: |
           set -euo pipefail
           sudo apt update
@@ -100,19 +102,23 @@ jobs:
           method: 'network'
           sub-packages: '["nvcc", "cudart"]'
 
-      - name: Install AArch64 cross compiler (Linux)
-        if: matrix.cpu == 'aarch64-linux'
+      - name: Install Zig, LLVM, and cargo-zigbuild (Linux CPU musl)
+        if: runner.os == 'Linux' && contains(matrix.target, 'linux-musl')
         run: |
           set -euo pipefail
-          sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils llvm
+          ZIG_VER=0.13.0
+          curl -sSL "https://ziglang.org/download/${ZIG_VER}/zig-linux-x86_64-${ZIG_VER}.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C /tmp
+          sudo mv "/tmp/zig-linux-x86_64-${ZIG_VER}" /opt/zig
+          echo "/opt/zig" >> "$GITHUB_PATH"
 
-      - name: Install RISC-V cross compiler
-        if: matrix.cpu == 'riscv64-linux'
-        run: |
-          set -euo pipefail
-          sudo apt update
-          sudo apt install -y gcc-riscv64-linux-gnu
+      - name: Install cargo-zigbuild
+        if: runner.os == 'Linux' && contains(matrix.target, 'linux-musl')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
 
       - name: GPU enabled build
         if: matrix.gpu_enabled == true
@@ -163,16 +169,20 @@ jobs:
         if: matrix.gpu_enabled != true
         shell: bash
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
-          CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
+          RUSTFLAGS: ${{ contains(matrix.target, 'linux-musl') && '-C target-feature=+crt-static' || '' }}
         run: |
           set -euo pipefail
-          cargo build --target=${{ matrix.target }} --release -p kheavyhash-miner
-          tag_name="${GITHUB_REF_NAME}"
           target="${{ matrix.target }}"
+          if [[ "${target}" == *linux-musl* ]]; then
+            cargo zigbuild --target="${target}" --release -p kheavyhash-miner
+          else
+            cargo build --target="${target}" --release -p kheavyhash-miner
+          fi
+          tag_name="${GITHUB_REF_NAME}"
           case "${target}" in
+            *linux-musl*)
+              asset_os="linux-musl"
+              ;;
             *linux*)
               asset_os="linux"
               ;;
@@ -183,11 +193,27 @@ jobs:
               asset_os="unknown"
               ;;
           esac
-          strip_prefix="${{ matrix.strip_prefix }}"
           if [ "${{ runner.os }}" = "Linux" ]; then
-            "${strip_prefix}strip" --strip-all ./target/${{ matrix.target }}/release/kheavyhash-miner
+            bin="./target/${target}/release/kheavyhash-miner"
+            llvm-strip --strip-all "$bin"
+            # Host glibc `ldd` against a musl static ELF often does *not* print "not a dynamic executable",
+            # so verify with file(1) + no DT_NEEDED instead.
+            if [[ "${target}" == *linux-musl* ]]; then
+              if ! file "$bin" | grep -qE 'statically linked|static-pie'; then
+                echo "expected fully static musl CPU binary"
+                file "$bin" || true
+                (ldd "$bin" 2>&1 || true)
+                exit 1
+              fi
+              dyn=$(readelf -d "$bin" 2>&1 || true)
+              if echo "$dyn" | grep -q 'NEEDED'; then
+                echo "musl CPU binary must not list dynamic libraries (DT_NEEDED)"
+                echo "$dyn"
+                exit 1
+              fi
+            fi
           else
-            strip ./target/${{ matrix.target }}/release/kheavyhash-miner
+            strip "./target/${target}/release/kheavyhash-miner"
           fi
           cpu_name="${{ matrix.cpu }}"
           case "${cpu_name}" in
@@ -206,7 +232,7 @@ jobs:
           esac
           asset_name="kheavyhash-miner-${tag_name}-cpu-only-${asset_os}-${asset_cpu}"
           mkdir "${asset_name}"
-          mv ./target/${{ matrix.target }}/release/kheavyhash-miner "${asset_name}/${asset_name}"
+          mv "./target/${target}/release/kheavyhash-miner" "${asset_name}/${asset_name}"
           tar czvf "${asset_name}.tgz" "${asset_name}"
           echo "archive=${asset_name}.tgz" >> "$GITHUB_ENV"
           echo "asset_name=${asset_name}.tgz" >> "$GITHUB_ENV"
@@ -223,10 +249,13 @@ jobs:
           set -euo pipefail
           f='${{ matrix.features }}'
           cpu='${{ matrix.cpu }}'
-          if [ "$cpu" = aarch64-linux ]; then
-            echo "workflow_artifact_name=ubuntu-24.04-aarch64-unknown-linux-gnu-${{ env.asset_name }}" >> "$GITHUB_ENV"
-          elif [ "$cpu" = riscv64-linux ]; then
-            echo "workflow_artifact_name=ubuntu-24.04-riscv64gc-unknown-linux-gnu-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          tgt='${{ matrix.target }}'
+          if [ "$tgt" = aarch64-unknown-linux-musl ]; then
+            echo "workflow_artifact_name=ubuntu-24.04-aarch64-unknown-linux-musl-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          elif [ "$tgt" = riscv64gc-unknown-linux-musl ]; then
+            echo "workflow_artifact_name=ubuntu-24.04-riscv64gc-unknown-linux-musl-${{ env.asset_name }}" >> "$GITHUB_ENV"
+          elif [ "$tgt" = x86_64-unknown-linux-musl ]; then
+            echo "workflow_artifact_name=ubuntu-24.04-x86_64-unknown-linux-musl-${{ env.asset_name }}" >> "$GITHUB_ENV"
           elif [ "$cpu" = aarch64-darwin ]; then
             echo "workflow_artifact_name=macos-latest-aarch64-apple-darwin-${{ env.asset_name }}" >> "$GITHUB_ENV"
           else
