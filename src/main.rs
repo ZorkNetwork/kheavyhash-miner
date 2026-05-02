@@ -135,6 +135,7 @@ async fn main() -> Result<(), Error> {
     let mut opt: Opt = Opt::from_arg_matches(&matches)?;
     opt.process()?;
     env_logger::builder().filter_level(opt.log_level()).parse_default_env().init();
+    crate::pow::init_riscv_pow_dispatch();
     info!("=================================================================================");
     info!("                 kHeavyHash-Miner {}", env!("CARGO_PKG_VERSION"));
     info!(" Mining for: {}", opt.mining_address);

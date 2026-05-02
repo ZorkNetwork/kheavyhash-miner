@@ -146,6 +146,15 @@ pub fn get_num_cpus(n_cpus: Option<u16>) -> u16 {
 
 const LOG_RATE: Duration = Duration::from_secs(10);
 
+/// Publish batched hash attempts to the global counter (Release so hashrate logger observes totals).
+#[inline]
+fn flush_hash_attempts(global: &AtomicU64, pending: &mut u64) {
+    if *pending != 0 {
+        global.fetch_add(*pending, Ordering::Release);
+        *pending = 0;
+    }
+}
+
 impl MinerManager {
     pub fn new(send_channel: Sender<BlockSeed>, n_cpus: Option<u16>, manager: &PluginManager) -> Self {
         register_freeze_handler();
@@ -248,18 +257,30 @@ impl MinerManager {
                 let mut nonces = vec![0u64; 1];
 
                 let mut state = None;
+                let mut pending_global: u64 = 0;
+                let mut pending_worker: u64 = 0;
+                // Batch hash-rate accounting to reduce cache-line contention on `hashes_tried`.
+                const GPU_HASH_FLUSH: u64 = 64;
 
                 loop {
                     nonces[0] = 0;
                     if state.is_none() {
+                        flush_hash_attempts(&hashes_tried, &mut pending_global);
+                        flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
                         state = match block_channel.wait_for_change() {
                             Ok(cmd) => match cmd {
                                 Some(WorkerCommand::Job(s)) => Some(s),
-                                Some(WorkerCommand::Close) => {return Ok(());}
+                                Some(WorkerCommand::Close) => {
+                                    flush_hash_attempts(&hashes_tried, &mut pending_global);
+                                    flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
+                                    return Ok(());
+                                }
                                 None => None,
                             },
                             Err(e) => {
                                 info!("{}: GPU thread crashed: {}", gpu_work.id(), e.to_string());
+                                flush_hash_attempts(&hashes_tried, &mut pending_global);
+                                flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
                                 return Ok(());
                             }
                         };
@@ -288,12 +309,19 @@ impl MinerManager {
                                 state = None;
                             }
                             nonces[0] = 0;
-                            hashes_tried.fetch_add(gpu_work.get_workload().try_into().unwrap(), Ordering::AcqRel);
-                            worker_hashes_tried.fetch_add(gpu_work.get_workload().try_into().unwrap(), Ordering::AcqRel);
+                            let w = gpu_work.get_workload().try_into().unwrap();
+                            pending_global = pending_global.wrapping_add(w);
+                            pending_worker = pending_worker.wrapping_add(w);
+                            if pending_global >= GPU_HASH_FLUSH {
+                                flush_hash_attempts(&hashes_tried, &mut pending_global);
+                                flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
+                            }
                             continue;
                         } else {
                             let hash = state_ref.calculate_pow(nonces[0]);
                             warn!("Something is wrong in GPU results! Got nonce {}, with hash real {:?}  (target: {}*2^196)", nonces[0], hash.0, state_ref.target.0[3]);
+                            flush_hash_attempts(&hashes_tried, &mut pending_global);
+                            flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
                             break;
                         }
                     }
@@ -328,14 +356,25 @@ impl MinerManager {
                             assert!(false);
                         }*/
 
-                    hashes_tried.fetch_add(gpu_work.get_workload().try_into().unwrap(), Ordering::AcqRel);
-                    worker_hashes_tried.fetch_add(gpu_work.get_workload().try_into().unwrap(), Ordering::AcqRel);
+                    let w = gpu_work.get_workload().try_into().unwrap();
+                    pending_global = pending_global.wrapping_add(w);
+                    pending_worker = pending_worker.wrapping_add(w);
+                    if pending_global >= GPU_HASH_FLUSH {
+                        flush_hash_attempts(&hashes_tried, &mut pending_global);
+                        flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
+                    }
 
                     {
                         if let Some(new_cmd) = block_channel.get_changed()? {
+                            flush_hash_attempts(&hashes_tried, &mut pending_global);
+                            flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
                             state = match new_cmd {
                                 Some(WorkerCommand::Job(s)) => Some(s),
-                                Some(WorkerCommand::Close) => {return Ok(());}
+                                Some(WorkerCommand::Close) => {
+                                    flush_hash_attempts(&hashes_tried, &mut pending_global);
+                                    flush_hash_attempts(&worker_hashes_tried, &mut pending_worker);
+                                    return Ok(());
+                                }
                                 None => None,
                             };
                         }
@@ -362,19 +401,27 @@ impl MinerManager {
         std::thread::spawn(move || {
             (|| {
                 let mut state = None;
+                let mut pending_hashes: u64 = 0;
+                let mut nonces_since_poll: u64 = 0;
+                // Batch hash-rate accounting to reduce cache-line contention on `hashes_tried`.
+                const CPU_HASH_FLUSH: u64 = 1024;
+                const CPU_NONCE_BATCH: u64 = 4;
 
                 loop {
                     if state.is_none() {
+                        flush_hash_attempts(&hashes_tried, &mut pending_hashes);
                         state = match block_channel.wait_for_change() {
                             Ok(cmd) => match cmd {
                                 Some(WorkerCommand::Job(s)) => Some(s),
                                 Some(WorkerCommand::Close) => {
+                                    flush_hash_attempts(&hashes_tried, &mut pending_hashes);
                                     return Ok(());
                                 }
                                 None => None,
                             },
                             Err(e) => {
                                 info!("CPU thread crashed: {}", e.to_string());
+                                flush_hash_attempts(&hashes_tried, &mut pending_hashes);
                                 return Ok(());
                             }
                         };
@@ -383,30 +430,40 @@ impl MinerManager {
                             fixed = Wrapping(s.nonce_fixed);
                         }
                     }
-                    let state_ref = match state.as_mut() {
-                        Some(s) => s,
-                        None => continue,
-                    };
-                    nonce = (nonce & mask) | fixed;
-
-                    if let Some(block_seed) = state_ref.generate_block_if_pow(nonce.0) {
-                        match send_channel.blocking_send(block_seed.clone()) {
-                            Ok(()) => block_seed.report_block(),
-                            Err(e) => error!("Failed submitting block: ({})", e.to_string()),
+                    let mut batch_nonces: u64 = 0;
+                    for _ in 0..CPU_NONCE_BATCH {
+                        let Some(state_ref) = state.as_mut() else {
+                            break;
                         };
-                        if let BlockSeed::FullBlock(_) = block_seed {
-                            state = None;
+                        nonce = (nonce & mask) | fixed;
+
+                        if let Some(block_seed) = state_ref.generate_block_if_pow(nonce.0) {
+                            flush_hash_attempts(&hashes_tried, &mut pending_hashes);
+                            match send_channel.blocking_send(block_seed.clone()) {
+                                Ok(()) => block_seed.report_block(),
+                                Err(e) => error!("Failed submitting block: ({})", e.to_string()),
+                            };
+                            if let BlockSeed::FullBlock(_) = block_seed {
+                                state = None;
+                            }
+                        }
+                        nonce += Wrapping(1);
+                        pending_hashes = pending_hashes.wrapping_add(1);
+                        batch_nonces = batch_nonces.wrapping_add(1);
+                        if pending_hashes >= CPU_HASH_FLUSH {
+                            flush_hash_attempts(&hashes_tried, &mut pending_hashes);
                         }
                     }
-                    nonce += Wrapping(1);
-                    // TODO: Is this really necessary? can we just use Relaxed?
-                    hashes_tried.fetch_add(1, Ordering::AcqRel);
 
-                    if nonce.0 % 128 == 0 {
+                    nonces_since_poll = nonces_since_poll.wrapping_add(batch_nonces);
+                    if nonces_since_poll >= 128 {
+                        nonces_since_poll -= 128;
                         if let Some(new_cmd) = block_channel.get_changed()? {
+                            flush_hash_attempts(&hashes_tried, &mut pending_hashes);
                             state = match new_cmd {
                                 Some(WorkerCommand::Job(s)) => Some(s),
                                 Some(WorkerCommand::Close) => {
+                                    flush_hash_attempts(&hashes_tried, &mut pending_hashes);
                                     return Ok(());
                                 }
                                 None => None,
@@ -482,7 +539,7 @@ mod benches {
     extern crate test;
 
     use self::test::{black_box, Bencher};
-    use crate::pow::State;
+    use crate::pow::{BlockSeed, State};
     use crate::proto::{RpcBlock, RpcBlockHeader};
     use rand::Rng;
 
@@ -490,7 +547,7 @@ mod benches {
     pub fn bench_mining(bh: &mut Bencher) {
         let mut state = State::new(
             0,
-            RpcBlock {
+            BlockSeed::FullBlock(Box::new(RpcBlock {
                 header: Some(RpcBlockHeader {
                     version: 1,
                     parents: vec![],
@@ -508,7 +565,7 @@ mod benches {
                 }),
                 transactions: vec![],
                 verbose_data: None,
-            },
+            })),
         )
         .unwrap();
         let mut nonce = rand::rng().next_u64();

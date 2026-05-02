@@ -1,9 +1,69 @@
 use crate::pow::{hasher::HeavyHasher, xoshiro::XoShiRo256PlusPlus};
 use crate::Hash;
+use log::info;
 use std::mem::MaybeUninit;
+use std::sync::OnceLock;
+
+#[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+use super::riscv_detect;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Matrix(pub [[u16; 64]; 64]);
+
+type ComputeRankFn = fn(&Matrix) -> usize;
+type HeavyHashFn = fn(&Matrix, Hash) -> Hash;
+
+static COMPUTE_RANK_DISPATCH: OnceLock<ComputeRankFn> = OnceLock::new();
+static HEAVY_HASH_DISPATCH: OnceLock<HeavyHashFn> = OnceLock::new();
+
+/// One-time install of scalar vs RVV kernels (Linux riscv64 probes RVV; other targets use scalar).
+pub(crate) fn init_riscv_pow_dispatch() {
+    #[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+    {
+        let rvv = riscv_detect::linux_riscv_has_rvv();
+        let (rank, hash): (ComputeRankFn, HeavyHashFn) =
+            if rvv { (compute_rank_rvv, heavy_hash_rvv) } else { (compute_rank_scalar, heavy_hash_scalar) };
+        let _ = COMPUTE_RANK_DISPATCH.set(rank);
+        let _ = HEAVY_HASH_DISPATCH.set(hash);
+        if rvv {
+            info!("RISC-V POW: RVV extensions enabled");
+        } else {
+            info!("RISC-V POW: RVV extensions not found");
+        }
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "linux")))]
+    {
+        let _ = COMPUTE_RANK_DISPATCH.set(compute_rank_scalar);
+        let _ = HEAVY_HASH_DISPATCH.set(heavy_hash_scalar);
+    }
+}
+
+#[inline(always)]
+fn compute_rank_dispatched(matrix: &Matrix) -> usize {
+    (COMPUTE_RANK_DISPATCH.get().copied().unwrap_or(compute_rank_scalar))(matrix)
+}
+
+#[inline(always)]
+fn heavy_hash_dispatched(matrix: &Matrix, hash: Hash) -> Hash {
+    (HEAVY_HASH_DISPATCH.get().copied().unwrap_or(heavy_hash_scalar))(matrix, hash)
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+mod khh_rvv {
+    extern "C" {
+        pub fn khh_dot_u16_u8_64(row: *const u16, vec: *const u8, n: usize) -> u32;
+        pub fn khh_dot_pair_u16_u8_64(
+            row_a: *const u16,
+            row_b: *const u16,
+            vec: *const u8,
+            n: usize,
+            out_sum_a: *mut u32,
+            out_sum_b: *mut u32,
+        );
+        pub fn khh_f64_row_scale(row: *mut f64, inv: f64, n: usize);
+        pub fn khh_f64_row_axpy_sub(dst: *mut f64, src: *const f64, factor: f64, n: usize);
+    }
+}
 
 impl Matrix {
     // pub fn generate(hash: Hash) -> Self {
@@ -64,66 +124,150 @@ impl Matrix {
     }
 
     pub fn compute_rank(&self) -> usize {
-        const EPS: f64 = 1e-9;
-        let mut mat_float = self.convert_to_float();
-        let mut rank = 0;
-        let mut row_selected = [false; 64];
-        for i in 0..64 {
-            if i >= 64 {
-                // Required for optimization, See https://github.com/rust-lang/rust/issues/90794
-                unreachable!()
+        compute_rank_dispatched(self)
+    }
+
+    pub fn heavy_hash(&self, hash: Hash) -> Hash {
+        heavy_hash_dispatched(self, hash)
+    }
+}
+
+pub(crate) fn compute_rank_scalar(matrix: &Matrix) -> usize {
+    const EPS: f64 = 1e-9;
+    let mut mat_float = matrix.convert_to_float();
+    let mut rank = 0;
+    let mut row_selected = [false; 64];
+    for i in 0..64 {
+        if i >= 64 {
+            // Required for optimization, See https://github.com/rust-lang/rust/issues/90794
+            unreachable!()
+        }
+        let mut j = 0;
+        while j < 64 {
+            if !row_selected[j] && mat_float[j][i].abs() > EPS {
+                break;
             }
-            let mut j = 0;
-            while j < 64 {
-                if !row_selected[j] && mat_float[j][i].abs() > EPS {
-                    break;
-                }
-                j += 1;
+            j += 1;
+        }
+        if j != 64 {
+            rank += 1;
+            row_selected[j] = true;
+            for p in (i + 1)..64 {
+                mat_float[j][p] /= mat_float[j][i];
             }
-            if j != 64 {
-                rank += 1;
-                row_selected[j] = true;
-                for p in (i + 1)..64 {
-                    mat_float[j][p] /= mat_float[j][i];
+            for k in 0..64 {
+                if k != j && mat_float[k][i].abs() > EPS {
+                    for p in (i + 1)..64 {
+                        mat_float[k][p] -= mat_float[j][p] * mat_float[k][i];
+                    }
                 }
-                for k in 0..64 {
-                    if k != j && mat_float[k][i].abs() > EPS {
-                        for p in (i + 1)..64 {
-                            mat_float[k][p] -= mat_float[j][p] * mat_float[k][i];
+            }
+        }
+    }
+    rank
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+pub(crate) fn compute_rank_rvv(matrix: &Matrix) -> usize {
+    const EPS: f64 = 1e-9;
+    let mut mat_float = matrix.convert_to_float();
+    let mut rank = 0;
+    let mut row_selected = [false; 64];
+    for i in 0..64 {
+        let mut j = 0;
+        while j < 64 {
+            if !row_selected[j] && mat_float[j][i].abs() > EPS {
+                break;
+            }
+            j += 1;
+        }
+        if j != 64 {
+            rank += 1;
+            row_selected[j] = true;
+            let pivot = mat_float[j][i];
+            let len = 64usize.saturating_sub(i + 1);
+            if len > 0 {
+                let inv = 1.0 / pivot;
+                unsafe {
+                    khh_rvv::khh_f64_row_scale(mat_float[j].as_mut_ptr().add(i + 1), inv, len);
+                }
+            }
+            for k in 0..64 {
+                if k != j && mat_float[k][i].abs() > EPS {
+                    let fac = mat_float[k][i];
+                    let len = 64usize.saturating_sub(i + 1);
+                    if len > 0 {
+                        unsafe {
+                            khh_rvv::khh_f64_row_axpy_sub(
+                                mat_float[k].as_mut_ptr().add(i + 1),
+                                mat_float[j].as_ptr().add(i + 1),
+                                fac,
+                                len,
+                            );
                         }
                     }
                 }
             }
         }
-        rank
     }
+    rank
+}
 
-    pub fn heavy_hash(&self, hash: Hash) -> Hash {
-        let hash = hash.to_le_bytes();
-        // SAFETY: An uninitialized MaybrUninit is always safe.
-        let mut vec: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
-        for i in 0..32 {
-            vec[2 * i].write(hash[i] >> 4);
-            vec[2 * i + 1].write(hash[i] & 0x0F);
+pub(crate) fn heavy_hash_scalar(matrix: &Matrix, hash: Hash) -> Hash {
+    let hash = hash.to_le_bytes();
+    // SAFETY: An uninitialized MaybrUninit is always safe.
+    let mut vec: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
+    for i in 0..32 {
+        vec[2 * i].write(hash[i] >> 4);
+        vec[2 * i + 1].write(hash[i] & 0x0F);
+    }
+    // SAFETY: The loop above wrote into all indexes.
+    let vec: [u8; 64] = unsafe { std::mem::transmute(vec) };
+
+    // Matrix-vector multiplication, convert to 4 bits, and then combine back to 8 bits.
+    let mut product: [u8; 32] = array_from_fn(|i| {
+        let mut sum1 = 0;
+        let mut sum2 = 0;
+        for (j, &elem) in vec.iter().enumerate() {
+            sum1 += matrix.0[2 * i][j] * (elem as u16);
+            sum2 += matrix.0[2 * i + 1][j] * (elem as u16);
         }
-        // SAFETY: The loop above wrote into all indexes.
-        let vec: [u8; 64] = unsafe { std::mem::transmute(vec) };
+        ((sum1 >> 10) << 4) as u8 | (sum2 >> 10) as u8
+    });
 
-        // Matrix-vector multiplication, convert to 4 bits, and then combine back to 8 bits.
-        let mut product: [u8; 32] = array_from_fn(|i| {
-            let mut sum1 = 0;
-            let mut sum2 = 0;
-            for (j, &elem) in vec.iter().enumerate() {
-                sum1 += self.0[2 * i][j] * (elem as u16);
-                sum2 += self.0[2 * i + 1][j] * (elem as u16);
-            }
-            ((sum1 >> 10) << 4) as u8 | (sum2 >> 10) as u8
-        });
+    // Concatenate 4 LSBs back to 8 bit xor with sum1
+    product.iter_mut().zip(hash).for_each(|(p, h)| *p ^= h);
+    HeavyHasher::hash(Hash::from_le_bytes(product))
+}
 
-        // Concatenate 4 LSBs back to 8 bit xor with sum1
-        product.iter_mut().zip(hash).for_each(|(p, h)| *p ^= h);
-        HeavyHasher::hash(Hash::from_le_bytes(product))
+#[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+pub(crate) fn heavy_hash_rvv(matrix: &Matrix, hash: Hash) -> Hash {
+    let hash_bytes = hash.to_le_bytes();
+    let mut vec: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
+    for i in 0..32 {
+        vec[2 * i].write(hash_bytes[i] >> 4);
+        vec[2 * i + 1].write(hash_bytes[i] & 0x0F);
     }
+    let vec: [u8; 64] = unsafe { std::mem::transmute(vec) };
+
+    let mut product: [u8; 32] = array_from_fn(|i| {
+        let mut sum1 = 0u32;
+        let mut sum2 = 0u32;
+        unsafe {
+            khh_rvv::khh_dot_pair_u16_u8_64(
+                matrix.0[2 * i].as_ptr(),
+                matrix.0[2 * i + 1].as_ptr(),
+                vec.as_ptr(),
+                64,
+                &mut sum1,
+                &mut sum2,
+            );
+        }
+        ((sum1 >> 10) << 4) as u8 | (sum2 >> 10) as u8
+    });
+
+    product.iter_mut().zip(hash_bytes).for_each(|(p, h)| *p ^= h);
+    HeavyHasher::hash(Hash::from_le_bytes(product))
 }
 
 pub fn array_from_fn<F, T, const N: usize>(mut cb: F) -> [T; N]
@@ -143,6 +287,34 @@ mod tests {
     use crate::pow::heavy_hash::Matrix;
     use crate::pow::xoshiro::XoShiRo256PlusPlus;
     use crate::Hash;
+
+    #[test]
+    fn rvv_kernels_match_scalar_when_present() {
+        super::init_riscv_pow_dispatch();
+        #[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+        if super::riscv_detect::linux_riscv_has_rvv() {
+            let mut gen = XoShiRo256PlusPlus::new(Hash::from_le_bytes([7; 32]));
+            let m = Matrix::rand_matrix_no_rank_check(&mut gen);
+            let h = Hash::from_le_bytes([9; 32]);
+            assert_eq!(super::heavy_hash_scalar(&m, h), super::heavy_hash_rvv(&m, h));
+            assert_eq!(super::compute_rank_scalar(&m), super::compute_rank_rvv(&m));
+            let vec = [3u8; 64];
+            let mut sa = 0u32;
+            let mut sb = 0u32;
+            unsafe {
+                super::khh_rvv::khh_dot_pair_u16_u8_64(
+                    m.0[0].as_ptr(),
+                    m.0[1].as_ptr(),
+                    vec.as_ptr(),
+                    64,
+                    &mut sa,
+                    &mut sb,
+                );
+            }
+            assert_eq!(sa, unsafe { super::khh_rvv::khh_dot_u16_u8_64(m.0[0].as_ptr(), vec.as_ptr(), 64) });
+            assert_eq!(sb, unsafe { super::khh_rvv::khh_dot_u16_u8_64(m.0[1].as_ptr(), vec.as_ptr(), 64) });
+        }
+    }
 
     #[test]
     fn test_compute_rank() {

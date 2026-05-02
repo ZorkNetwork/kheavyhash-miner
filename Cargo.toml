@@ -1,6 +1,6 @@
 [package]
 name = "kheavyhash-miner"
-version = "1.0.5-ZN"
+version = "1.0.6-ZN"
 edition = "2021"
 license = "MIT/Apache-2.0"
 authors = ["Elichai <elichai.turkel@gmail.com>"]
@@ -32,7 +32,7 @@ futures-util = "0.3"
 tokio-stream = {version = "0.1", features = ["net"]}
 once_cell = "1"
 num_cpus = "1"
-rand = "0.10"
+rand = "0.10.1"
 blake2b_simd = "1.0.0"
 clap = { version = "4", features = ["color", "derive"]}
 log = "0.4"
@@ -64,6 +64,9 @@ no-sha3-asm = []
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
+[target.'cfg(all(target_os = "linux", target_arch = "riscv64"))'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 keccak = "0.2"
 kernel32-sys = "0.2"
@@ -80,6 +83,7 @@ time = { version = "0.3.47", features = ["formatting"] }
 
 [dev-dependencies]
 sha3 = { git = "https://github.com/elichai/hashes", branch = "cSHAKE" }
+keccak = "0.2"
 
 [workspace]
 members = ["plugins/*"]

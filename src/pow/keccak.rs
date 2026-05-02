@@ -85,3 +85,19 @@ pub(super) fn f1600(state: &mut [u64; 25]) {
 compile_error!(
     "Unsupported architecture without asm; enable `--features=no-asm` for a portable Keccak implementation."
 );
+
+#[cfg(all(test, target_arch = "riscv64", target_os = "linux", not(feature = "no-asm")))]
+mod riscv_keccak_reference_tests {
+    fn reference_f1600(state: &mut [u64; 25]) {
+        keccak::Keccak::new().with_f1600(|p| p(state));
+    }
+
+    #[test]
+    fn keccak_f1600_asm_matches_keccak_crate() {
+        let mut asm_state: [u64; 25] = core::array::from_fn(|i| (i as u64).wrapping_mul(0x9e3779b97f4a7c15_u64));
+        let mut ref_state = asm_state;
+        super::f1600(&mut asm_state);
+        reference_f1600(&mut ref_state);
+        assert_eq!(asm_state, ref_state);
+    }
+}

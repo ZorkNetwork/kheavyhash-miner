@@ -18,7 +18,12 @@ use kheavyhash_miner::Worker;
 mod hasher;
 mod heavy_hash;
 mod keccak;
+mod riscv_detect;
 mod xoshiro;
+
+pub(crate) fn init_riscv_pow_dispatch() {
+    heavy_hash::init_riscv_pow_dispatch();
+}
 
 #[derive(Clone, Debug)]
 pub enum BlockSeed {
@@ -134,6 +139,13 @@ impl State {
         // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
         let hash = self.hasher.finalize_with_nonce(nonce);
         self.matrix.heavy_hash(hash)
+    }
+
+    /// Evaluate several nonces against the same job (same matrix / header materialization).
+    /// Portable scalar implementation; enables tighter mining-loop scheduling without changing POW semantics.
+    #[inline(always)]
+    pub fn calculate_pow_batch<const N: usize>(&self, nonces: &[u64; N]) -> [Uint256; N] {
+        std::array::from_fn(|i| self.calculate_pow(nonces[i]))
     }
 
     #[inline(always)]
@@ -260,7 +272,8 @@ fn decode_to_slice<T: AsRef<[u8]>>(data: T, out: &mut [u8]) -> Result<(), FromHe
 mod tests {
     use crate::pow::hasher::{Hasher, HeaderHasher};
     use crate::pow::serialize_header;
-    use crate::proto::{RpcBlockHeader, RpcBlockLevelParents};
+    use crate::pow::BlockSeed;
+    use crate::proto::{RpcBlock, RpcBlockHeader, RpcBlockLevelParents};
     use crate::Hash;
 
     struct Buf(Vec<u8>);
@@ -470,5 +483,38 @@ mod tests {
         let mut hasher = HeaderHasher::new();
         hasher.write(buf.0);
         assert_eq!(hasher.finalize(), expected_hash);
+    }
+
+    #[test]
+    fn calculate_pow_batch_matches_sequential() {
+        use crate::pow::State;
+        let state = State::new(
+            0,
+            BlockSeed::FullBlock(Box::new(RpcBlock {
+                header: Some(RpcBlockHeader {
+                    version: 1,
+                    parents: vec![],
+                    hash_merkle_root: "23618af45051560529440541e7dc56be27676d278b1e00324b048d410a19d764".to_string(),
+                    accepted_id_merkle_root: "947d1a10378d6478b6957a0ed71866812dee33684968031b1cace4908c149d94"
+                        .to_string(),
+                    utxo_commitment: "ec5e8fc0bc0c637004cee262cef12e7cf6d9cd7772513dbd466176a07ab7c4f4".to_string(),
+                    timestamp: 654654353,
+                    bits: 0x1e7fffff,
+                    nonce: 0,
+                    daa_score: 654456,
+                    blue_work: "d8e28a03234786".to_string(),
+                    pruning_point: "be4c415d378f9113fabd3c09fcc84ddb6a00f900c87cb6a1186993ddc3014e2d".to_string(),
+                    blue_score: 1164419,
+                }),
+                transactions: vec![],
+                verbose_data: None,
+            })),
+        )
+        .unwrap();
+        let nonces = [1u64, 2u64, 3u64, 4u64];
+        let batched = state.calculate_pow_batch(&nonces);
+        for i in 0..4 {
+            assert_eq!(batched[i], state.calculate_pow(nonces[i]));
+        }
     }
 }

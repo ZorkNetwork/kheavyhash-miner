@@ -9,6 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto");
     println!("cargo:rerun-if-changed=src/keccakf1600_x86-64.s");
     println!("cargo:rerun-if-changed=src/keccakf1600_riscv64.S");
+    println!("cargo:rerun-if-changed=src/pow/kheavyhash_rvv.c");
     println!("cargo:rerun-if-changed=src/keccakf1600_armv8.S");
     println!("cargo:rerun-if-changed=src/keccakf1600_armv8-osx.S");
     tonic_prost_build::configure()
@@ -27,7 +28,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cc::Build::new().flag("-c").file("src/keccakf1600_x86-64-osx.s").compile("libkeccak.a");
     }
     if target_arch == "riscv64" && target_os == "linux" {
-        cc::Build::new().flag("-c").file("src/keccakf1600_riscv64.S").compile("libkeccak.a");
+        let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+        cc::Build::new()
+            .flag("-c")
+            .flag("-march=rv64gc_zbb")
+            .flag("-mabi=lp64d")
+            .file("src/keccakf1600_riscv64.S")
+            .compile("libkeccak.a");
+
+        let mut rvv = cc::Build::new();
+        rvv.std("c11").flag("-O3").flag("-march=rv64gcv").flag("-mabi=lp64d");
+        // cargo-zigbuild's zigcc wrapper passes `-mcpu=generic_rv64+m+a+f+d+c` without `+v`, which
+        // makes Clang reject RVV intrinsics. A second `-mcpu=...` wins for this TU. (GNU
+        // `riscv64-linux-gnu-gcc` builds omit this; they already enable V via `-march=rv64gcv`.)
+        if target_env == "musl" {
+            rvv.flag("-mcpu=generic_rv64+m+a+f+d+c+v");
+        }
+        rvv.file("src/pow/kheavyhash_rvv.c").compile("kheavyhash_rvv");
     }
     if target_arch == "aarch64" && target_os == "linux" {
         cc::Build::new().flag("-c").file("src/keccakf1600_armv8.S").compile("libkeccak.a");
