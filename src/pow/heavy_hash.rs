@@ -111,7 +111,7 @@ impl Matrix {
 
     #[inline(always)]
     fn convert_to_float(&self) -> [[f64; 64]; 64] {
-        // SAFETY: An uninitialized MaybrUninit is always safe.
+        // SAFETY: An uninitialized MaybeUninit is always safe.
         let mut out: [[MaybeUninit<f64>; 64]; 64] = unsafe { MaybeUninit::uninit().assume_init() };
 
         out.iter_mut().zip(self.0.iter()).for_each(|(out_row, mat_row)| {
@@ -137,11 +137,8 @@ pub(crate) fn compute_rank_scalar(matrix: &Matrix) -> usize {
     let mut mat_float = matrix.convert_to_float();
     let mut rank = 0;
     let mut row_selected = [false; 64];
+    // rustc/LLVM used to miss obvious bounds facts for this loop shape (#90794); fixed in Rust 1.72+.
     for i in 0..64 {
-        if i >= 64 {
-            // Required for optimization, See https://github.com/rust-lang/rust/issues/90794
-            unreachable!()
-        }
         let mut j = 0;
         while j < 64 {
             if !row_selected[j] && mat_float[j][i].abs() > EPS {
@@ -215,7 +212,7 @@ pub(crate) fn compute_rank_rvv(matrix: &Matrix) -> usize {
 
 pub(crate) fn heavy_hash_scalar(matrix: &Matrix, hash: Hash) -> Hash {
     let hash = hash.to_le_bytes();
-    // SAFETY: An uninitialized MaybrUninit is always safe.
+    // SAFETY: An uninitialized MaybeUninit is always safe.
     let mut vec: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
     for i in 0..32 {
         vec[2 * i].write(hash[i] >> 4);
