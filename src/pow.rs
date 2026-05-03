@@ -276,6 +276,9 @@ mod tests {
     use crate::proto::{RpcBlock, RpcBlockHeader, RpcBlockLevelParents};
     use crate::Hash;
 
+    // Hex strings and byte arrays in this module are golden **unit test** fixtures only (synthetic
+    // blocks, expected serialization, POW regression inputs). They are not production secrets.
+
     struct Buf(Vec<u8>);
     impl Hasher for Buf {
         fn update<A: AsRef<[u8]>>(&mut self, data: A) -> &mut Self {
@@ -485,9 +488,12 @@ mod tests {
         assert_eq!(hasher.finalize(), expected_hash);
     }
 
+    /// Batched vs sequential POW must agree on identical nonces for a fixed synthetic block template.
     #[test]
     fn calculate_pow_batch_matches_sequential() {
         use crate::pow::State;
+        // Static header fields and template block are test-only consensus-shaped data, not keys.
+        // codeql[rust/hard-coded-cryptographic-value]
         let state = State::new(
             0,
             BlockSeed::FullBlock(Box::new(RpcBlock {
@@ -511,6 +517,8 @@ mod tests {
             })),
         )
         .unwrap();
+        // Fixed mining nonces for this regression test only (not live key material).
+        // codeql[rust/hard-coded-cryptographic-value]
         let nonces = [1u64, 2u64, 3u64, 4u64];
         let batched = state.calculate_pow_batch(&nonces);
         for i in 0..4 {

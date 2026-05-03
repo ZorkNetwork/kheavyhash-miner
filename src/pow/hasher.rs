@@ -99,6 +99,7 @@ mod tests {
     use sha3::digest::{ExtendableOutput, Update, XofReader};
     use sha3::CShake256;
 
+    // Protocol CSHAKE domain labels (same as consensus); used only here to match PowHasher/HeavyHasher.
     const PROOF_OF_WORK_DOMAIN: &[u8] = b"ProofOfWorkHash";
     const HEAVY_HASH_DOMAIN: &[u8] = b"HeavyHash";
 
@@ -106,10 +107,14 @@ mod tests {
     fn test_pow_hash() {
         let timestamp: u64 = 5435345234;
         let nonce: u64 = 432432432;
+        // Deterministic dummy pre-POW hash for this unit test only (not a live key or secret).
+        // codeql[rust/hard-coded-cryptographic-value]
         let pre_pow_hash = Hash::from_le_bytes([42; 32]);
         let hasher = PowHasher::new(pre_pow_hash, timestamp);
         let hash1 = hasher.finalize_with_nonce(nonce);
 
+        // Test-only zero padding in the reference CSHAKE chain (matches POW wire layout).
+        // codeql[rust/hard-coded-cryptographic-value]
         let hasher = CShake256::new(PROOF_OF_WORK_DOMAIN)
             .chain(pre_pow_hash.to_le_bytes())
             .chain(timestamp.to_le_bytes())
@@ -122,6 +127,8 @@ mod tests {
 
     #[test]
     fn test_heavy_hash() {
+        // Deterministic dummy hash for this unit test only (not a live key or secret).
+        // codeql[rust/hard-coded-cryptographic-value]
         let val = Hash::from_le_bytes([42; 32]);
         let hash1 = HeavyHasher::hash(val);
 
@@ -144,6 +151,8 @@ mod benches {
     pub fn bench_pow_hash(bh: &mut Bencher) {
         let timestamp: u64 = 5435345234;
         let mut nonce: u64 = 432432432;
+        // Bench-only fixed input (never used outside #[cfg(all(test, feature = "bench"))]).
+        // codeql[rust/hard-coded-cryptographic-value]
         let pre_pow_hash = Hash::from_le_bytes([42; 32]);
         let mut hasher = PowHasher::new(pre_pow_hash, timestamp);
 
@@ -158,6 +167,8 @@ mod benches {
 
     #[bench]
     pub fn bench_heavy_hash(bh: &mut Bencher) {
+        // Bench-only fixed input (never used outside #[cfg(all(test, feature = "bench"))]).
+        // codeql[rust/hard-coded-cryptographic-value]
         let mut data = Hash::from_le_bytes([42; 32]);
         bh.iter(|| {
             for _ in 0..100 {
